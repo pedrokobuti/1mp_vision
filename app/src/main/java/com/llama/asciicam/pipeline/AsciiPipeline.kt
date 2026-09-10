@@ -29,6 +29,9 @@ class AsciiFrameResult(val cols: Int, val rows: Int) {
     val chars = CharArray(cols * rows) { ' ' }
     val colors = IntArray(cols * rows)
     val span = IntArray(cols * rows) { 1 }
+    /** Mean post-color-adjust luminance across the frame (0..1), used by
+     * [AsciiPipeline.backgroundArgbFor] to derive the Invert ASCII background. */
+    var avgLuminance: Float = 0f
 }
 
 /**
@@ -185,137 +188,11 @@ object AsciiPipeline {
         state.ensureSize(cols, rows)
         val n = cols * rows
 
-        // ---------- step 2: per-cell color adjustment ----------
-        val brightness_ = settings.brightness / 100f * 0.5f
-        val contrastFactor = 1f + settings.contrast / 100f
-        val exposureFactor = 2f.pow(settings.exposure / 50f)
-        val satFactor = settings.saturation / 100f
-        val gamma_ = max(0.01f, settings.gamma / 100f)
-        val invGamma = 1f / gamma_
-
-        val adjR = state.adjR; val adjG = state.adjG; val adjB = state.adjB; val adjLum = state.adjLum
-        for (i in 0 until n) {
-            var r = rawR[i] * exposureFactor
-            var g = rawG[i] * exposureFactor
-            var b = rawB[i] * exposureFactor
-            r += brightness_; g += brightness_; b += brightness_
-            r = (r - 0.5f) * contrastFactor + 0.5f
-            g = (g - 0.5f) * contrastFactor + 0.5f
-            b = (b - 0.5f) * contrastFactor + 0.5f
-            val lum0 = r * 0.299f + g * 0.587f + b * 0.114f
-            r = lum0 + (r - lum0) * satFactor
-            g = lum0 + (g - lum0) * satFactor
-            b = lum0 + (b - lum0) * satFactor
-            r = r.coerceIn(0f, 1f); g = g.coerceIn(0f, 1f); b = b.coerceIn(0f, 1f)
-            if (invGamma != 1f) {
-                r = r.pow(invGamma); g = g.pow(invGamma); b = b.pow(invGamma)
-            }
-            adjR[i] = r; adjG[i] = g; adjB[i] = b
-            adjLum[i] = r * 0.299f + g * 0.587f + b * 0.114f
-        }
-
-        // ---------- step 4: temporal smoothing (camera/video sources only) ----------
-        val smLum: FloatArray; val smR: FloatArray; val smG: FloatArray; val smB: FloatArray
-        if (applyTemporalSmoothing) {
-            smLum = state.smLum; smR = state.smR; smG = state.smG; smB = state.smB
-            if (state.hasPrevFrame) {
-                for (i in 0 until n) {
-                    smLum[i] = state.prevLum[i] * 0.55f + adjLum[i] * 0.45f
-                    smR[i] = state.prevR[i] * 0.55f + adjR[i] * 0.45f
-                    smG[i] = state.prevG[i] * 0.55f + adjG[i] * 0.45f
-                    smB[i] = state.prevB[i] * 0.55f + adjB[i] * 0.45f
-                }
-            } else {
-                System.arraycopy(adjLum, 0, smLum, 0, n)
-                System.arraycopy(adjR, 0, smR, 0, n)
-                System.arraycopy(adjG, 0, smG, 0, n)
-                System.arraycopy(adjB, 0, smB, 0, n)
-            }
-            System.arraycopy(smLum, 0, state.prevLum, 0, n)
-            System.arraycopy(smR, 0, state.prevR, 0, n)
-            System.arraycopy(smG, 0, state.prevG, 0, n)
-            System.arraycopy(smB, 0, state.prevB, 0, n)
-            state.hasPrevFrame = true
-        } else {
-            smLum = adjLum; smR = adjR; smG = adjG; smB = adjB
-            state.hasPrevFrame = false
-        }
-
-        // ---------- step 5: distortion ----------
-        val distLum: FloatArray; val distR: FloatArray; val distG: FloatArray; val distB: FloatArray
-        val clampedDt = dtSeconds.coerceIn(0f, 0.1f)
-        state.distortionClockSeconds += clampedDt * (settings.distortionSpeed / 100f)
-        if (settings.distortionType == DistortionType.NONE) {
-            distLum = smLum; distR = smR; distG = smG; distB = smB
-        } else {
-            distLum = state.distLum; distR = state.distR; distG = state.distG; distB = state.distB
-            val amt = settings.distortionAmount / 100f
-            val time = state.distortionClockSeconds
-            val cx = (cols - 1) / 2f
-            val cy = (rows - 1) / 2f
-            val minDim = min(cols, rows).toFloat()
-            for (y in 0 until rows) {
-                for (x in 0 until cols) {
-                    var dx = 0f
-                    var dy = 0f
-                    when (settings.distortionType) {
-                        DistortionType.SINE -> {
-                            dx = amt * cols * 0.06f * sin(y * 0.35f + time * 2f)
-                            dy = amt * rows * 0.06f * sin(x * 0.35f + time * 2.3f)
-                        }
-                        DistortionType.CIRCULAR -> {
-                            val ddx = x - cx; val ddy = y - cy
-                            val dist = hypot(ddx, ddy)
-                            val angle = atan2(ddy, ddx)
-                            val ripple = amt * minDim * 0.06f * sin(dist * 0.5f - time * 3f)
-                            dx = ripple * cos(angle); dy = ripple * sin(angle)
-                        }
-                        DistortionType.NOISE -> {
-                            dx = (hashNoiseF(x, y, time, 0f) - 0.5f) * 2f * amt * minDim * 0.08f
-                            dy = (hashNoiseF(x, y, time, 97.3f) - 0.5f) * 2f * amt * minDim * 0.08f
-                        }
-                        DistortionType.TWIRL -> {
-                            val ddx = x - cx; val ddy = y - cy
-                            val dist = hypot(ddx, ddy)
-                            val maxDist = minDim * 0.6f
-                            val twirlFactor = max(0f, 1f - dist / maxDist)
-                            val twist = amt * 3f + amt * 2f * sin(time * 0.6f)
-                            val angle = atan2(ddy, ddx) + twirlFactor * twist
-                            dx = cx + dist * cos(angle) - x
-                            dy = cy + dist * sin(angle) - y
-                        }
-                        DistortionType.PINCH -> {
-                            val ddx = x - cx; val ddy = y - cy
-                            val dist = hypot(ddx, ddy)
-                            val maxDist = minDim * 0.6f
-                            val normDist = min(1f, dist / maxDist)
-                            val pinchAmount = amt * 0.6f + amt * 0.5f * sin(time * 1.5f)
-                            val factor = max(normDist, 0.0001f).pow(1f + pinchAmount)
-                            val newDist = factor * maxDist
-                            val angle = atan2(ddy, ddx)
-                            dx = cos(angle) * newDist - ddx
-                            dy = sin(angle) * newDist - ddy
-                        }
-                        DistortionType.GLITCH -> {
-                            val bandRows = max(1, round(minDim * 0.05f).toInt())
-                            val band = y / bandRows
-                            val glitchTick = floor(time * 4f)
-                            if (hashNoiseF(band, 1, glitchTick, 77f) < 0.05f + 0.3f * amt) {
-                                dx = (hashNoiseF(band, 0, glitchTick, 55f) - 0.5f) * 2f * amt * cols * 0.15f
-                            }
-                        }
-                        DistortionType.NONE -> {}
-                    }
-                    val sx = (x + dx).coerceIn(0f, (cols - 1).toFloat())
-                    val sy = (y + dy).coerceIn(0f, (rows - 1).toFloat())
-                    val idx = y * cols + x
-                    distLum[idx] = sampleBilinear(smLum, cols, rows, sx, sy)
-                    distR[idx] = sampleBilinear(smR, cols, rows, sx, sy)
-                    distG[idx] = sampleBilinear(smG, cols, rows, sx, sy)
-                    distB[idx] = sampleBilinear(smB, cols, rows, sx, sy)
-                }
-            }
-        }
+        // ---------- steps 2/4/5: color adjust, temporal smoothing, distortion ----------
+        // Shared with StipplePipeline (see computeAdjustedFrame) -- both modes start
+        // from the same corrected/smoothed/warped luminance and color.
+        val adjusted = computeAdjustedFrame(rawR, rawG, rawB, cols, rows, settings, state, dtSeconds, applyTemporalSmoothing)
+        val distLum = adjusted.lum; val distR = adjusted.r; val distG = adjusted.g; val distB = adjusted.b
 
         // ---------- step 6: Sobel edge detection ----------
         val mag = state.mag; val ang = state.ang
@@ -390,6 +267,10 @@ object AsciiPipeline {
         val result = AsciiFrameResult(cols, rows)
         val chars = result.chars
 
+        var lumSum = 0f
+        for (i in 0 until n) lumSum += distLum[i]
+        result.avgLuminance = if (n > 0) (lumSum / n).coerceIn(0f, 1f) else 0f
+
         // ---------- step 7: character selection ----------
         when (settings.charSource) {
             CharSource.RAMP -> {
@@ -436,35 +317,6 @@ object AsciiPipeline {
         val cx = x.coerceIn(0, cols - 1)
         val cy = y.coerceIn(0, rows - 1)
         return grid[cy * cols + cx]
-    }
-
-    private fun sampleBilinear(grid: FloatArray, cols: Int, rows: Int, x: Float, y: Float): Float {
-        val x0 = floor(x).toInt().coerceIn(0, cols - 1)
-        val y0 = floor(y).toInt().coerceIn(0, rows - 1)
-        val x1 = (x0 + 1).coerceAtMost(cols - 1)
-        val y1 = (y0 + 1).coerceAtMost(rows - 1)
-        val fx = x - x0
-        val fy = y - y0
-        val v00 = grid[y0 * cols + x0]
-        val v10 = grid[y0 * cols + x1]
-        val v01 = grid[y1 * cols + x0]
-        val v11 = grid[y1 * cols + x1]
-        val top = v00 + (v10 - v00) * fx
-        val bottom = v01 + (v11 - v01) * fx
-        return top + (bottom - top) * fy
-    }
-
-    /** Ported from the original tool's `hashNoise(x,y,t,seedOffset)` value-noise. */
-    private fun hashNoiseF(x: Int, y: Int, t: Float, seedOffset: Float): Float {
-        val phase0 = floor(t)
-        val phase1 = phase0 + 1f
-        fun valAt(phase: Float): Float {
-            val s = sin(x * 127.1f + y * 311.7f + phase * 74.7f + seedOffset) * 43758.5453f
-            return s - floor(s)
-        }
-        val n0 = valAt(phase0)
-        val n1 = valAt(phase1)
-        return n0 + (t - phase0) * (n1 - n0)
     }
 
     private fun selectWordChars(
@@ -562,42 +414,17 @@ object AsciiPipeline {
         EdgeColorMode.OFF -> settings.edgeColorArgb // unused by callers; OFF is gated before this is called
     }
 
-    private fun paletteColor(stops: List<PaletteStop>, v: Float): Int {
-        if (stops.isEmpty()) return 0xFFFFFFFF.toInt()
-        if (stops.size == 1) return parseHexColor(stops[0].hex)
-        val t = v.coerceIn(0f, 1f) * (stops.size - 1)
-        val i0 = floor(t).toInt().coerceIn(0, stops.size - 2)
-        val i1 = i0 + 1
-        val frac = t - i0
-        val c0 = parseHexColor(stops[i0].hex)
-        val c1 = parseHexColor(stops[i1].hex)
-        val r = lerpInt((c0 shr 16) and 0xFF, (c1 shr 16) and 0xFF, frac)
-        val g = lerpInt((c0 shr 8) and 0xFF, (c1 shr 8) and 0xFF, frac)
-        val b = lerpInt(c0 and 0xFF, c1 and 0xFF, frac)
-        return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-    }
-
-    /** Unlike [paletteColor], never blends between adjacent stops — [v] just
-     * selects one of [stops] outright (equal-width brightness bins), so
-     * "1mposter colors" only ever draws exactly those 5 colors, verbatim. */
-    private fun discretePaletteColor(stops: List<PaletteStop>, v: Float): Int {
-        if (stops.isEmpty()) return 0xFFFFFFFF.toInt()
-        val idx = (v.coerceIn(0f, 0.999999f) * stops.size).toInt().coerceIn(0, stops.size - 1)
-        return parseHexColor(stops[idx].hex)
-    }
-
-    private fun lerpInt(a: Int, b: Int, t: Float): Int = (a + (b - a) * t).toInt().coerceIn(0, 255)
-
     /**
      * Canvas/export/recording background color for [settings]: black, unless
-     * Invert ASCII is on, in which case it's the gray level dialed in by
-     * [AsciiSettings.invertBgPercent] (0=black..100=white; defaults to 67%,
-     * not pure white — matching the reference web tool, whose "black ink on
-     * white paper" look actually pairs with an off-white background).
+     * Invert ASCII is on, in which case it's an automatic gray — the average
+     * luminance of the actual input frame ([avgLuminance], from the same
+     * frame's [AsciiFrameResult.avgLuminance]) rendered at 0% saturation
+     * (pure R=G=B gray), so the background always tracks what's on camera
+     * instead of a fixed manual level.
      */
-    fun backgroundArgbFor(settings: AsciiSettings): Int {
+    fun backgroundArgbFor(settings: AsciiSettings, avgLuminance: Float): Int {
         if (!settings.invert) return 0xFF000000.toInt()
-        val gray = round(settings.invertBgPercent.coerceIn(0, 100) / 100f * 255f).toInt().coerceIn(0, 255)
+        val gray = round(avgLuminance.coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255)
         return (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
     }
 
@@ -711,4 +538,233 @@ object AsciiPipeline {
         if (settings.merge3x3) tryMerge(3)
         if (settings.merge2x2) tryMerge(2)
     }
+}
+
+internal fun sampleBilinear(grid: FloatArray, cols: Int, rows: Int, x: Float, y: Float): Float {
+    val x0 = floor(x).toInt().coerceIn(0, cols - 1)
+    val y0 = floor(y).toInt().coerceIn(0, rows - 1)
+    val x1 = (x0 + 1).coerceAtMost(cols - 1)
+    val y1 = (y0 + 1).coerceAtMost(rows - 1)
+    val fx = x - x0
+    val fy = y - y0
+    val v00 = grid[y0 * cols + x0]
+    val v10 = grid[y0 * cols + x1]
+    val v01 = grid[y1 * cols + x0]
+    val v11 = grid[y1 * cols + x1]
+    val top = v00 + (v10 - v00) * fx
+    val bottom = v01 + (v11 - v01) * fx
+    return top + (bottom - top) * fy
+}
+
+/** Ported from the original tool's `hashNoise(x,y,t,seedOffset)` value-noise.
+ * Also reused by [StipplePipeline] as a stable (not time-varying, when called
+ * with a fixed [t]) per-cell pseudo-random hash for jittering dot positions —
+ * same generator, different use, so both stay visually "of a piece". */
+internal fun hashNoiseF(x: Int, y: Int, t: Float, seedOffset: Float): Float {
+    val phase0 = floor(t)
+    val phase1 = phase0 + 1f
+    fun valAt(phase: Float): Float {
+        val s = sin(x * 127.1f + y * 311.7f + phase * 74.7f + seedOffset) * 43758.5453f
+        return s - floor(s)
+    }
+    val n0 = valAt(phase0)
+    val n1 = valAt(phase1)
+    return n0 + (t - phase0) * (n1 - n0)
+}
+
+/** Result of [computeAdjustedFrame]: post color-adjust/smoothing/distortion
+ * luminance and color, ready for either mode's own final step. */
+internal class AdjustedFrame(val lum: FloatArray, val r: FloatArray, val g: FloatArray, val b: FloatArray)
+
+internal fun argbOf(a: Int, r: Float, g: Float, b: Float): Int {
+    val ri = (r.coerceIn(0f, 1f) * 255f).toInt()
+    val gi = (g.coerceIn(0f, 1f) * 255f).toInt()
+    val bi = (b.coerceIn(0f, 1f) * 255f).toInt()
+    return (a shl 24) or (ri shl 16) or (gi shl 8) or bi
+}
+
+private fun lerpInt(a: Int, b: Int, t: Float): Int = (a + (b - a) * t).toInt().coerceIn(0, 255)
+
+/** Blends linearly between adjacent [stops] by [v] (0..1). Shared between
+ * [AsciiPipeline] (main/edge cell color) and [StipplePipeline] (dot color). */
+internal fun paletteColor(stops: List<PaletteStop>, v: Float): Int {
+    if (stops.isEmpty()) return 0xFFFFFFFF.toInt()
+    if (stops.size == 1) return AsciiPipeline.parseHexColor(stops[0].hex)
+    val t = v.coerceIn(0f, 1f) * (stops.size - 1)
+    val i0 = floor(t).toInt().coerceIn(0, stops.size - 2)
+    val i1 = i0 + 1
+    val frac = t - i0
+    val c0 = AsciiPipeline.parseHexColor(stops[i0].hex)
+    val c1 = AsciiPipeline.parseHexColor(stops[i1].hex)
+    val r = lerpInt((c0 shr 16) and 0xFF, (c1 shr 16) and 0xFF, frac)
+    val g = lerpInt((c0 shr 8) and 0xFF, (c1 shr 8) and 0xFF, frac)
+    val b = lerpInt(c0 and 0xFF, c1 and 0xFF, frac)
+    return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+}
+
+/** Unlike [paletteColor], never blends between adjacent stops — [v] just
+ * selects one of [stops] outright (equal-width brightness bins), so
+ * "1mposter colors" only ever draws exactly those 5 colors, verbatim. */
+internal fun discretePaletteColor(stops: List<PaletteStop>, v: Float): Int {
+    if (stops.isEmpty()) return 0xFFFFFFFF.toInt()
+    val idx = (v.coerceIn(0f, 0.999999f) * stops.size).toInt().coerceIn(0, stops.size - 1)
+    return AsciiPipeline.parseHexColor(stops[idx].hex)
+}
+
+/**
+ * Steps 2 (per-cell color adjustment: brightness/contrast/exposure/
+ * saturation/gamma), 4 (temporal EMA smoothing, camera/video sources only)
+ * and 5 (distortion warp) of the pipeline -- shared verbatim between
+ * [AsciiPipeline.process] and [StipplePipeline.process], since both modes
+ * start from the exact same corrected, smoothed, warped image and only
+ * diverge in how they turn that into a final visual (characters vs. dots).
+ * A top-level internal function (not a member of the `AsciiPipeline` object)
+ * so [StipplePipeline], a separate file in the same package, can call it
+ * without exposing it as public API.
+ */
+internal fun computeAdjustedFrame(
+    rawR: FloatArray,
+    rawG: FloatArray,
+    rawB: FloatArray,
+    cols: Int,
+    rows: Int,
+    settings: AsciiSettings,
+    state: PipelineState,
+    dtSeconds: Float,
+    applyTemporalSmoothing: Boolean,
+): AdjustedFrame {
+    val n = cols * rows
+
+    // ---------- step 2: per-cell color adjustment ----------
+    val brightness_ = settings.brightness / 100f * 0.5f
+    val contrastFactor = 1f + settings.contrast / 100f
+    val exposureFactor = 2f.pow(settings.exposure / 50f)
+    val satFactor = settings.saturation / 100f
+    val gamma_ = max(0.01f, settings.gamma / 100f)
+    val invGamma = 1f / gamma_
+
+    val adjR = state.adjR; val adjG = state.adjG; val adjB = state.adjB; val adjLum = state.adjLum
+    for (i in 0 until n) {
+        var r = rawR[i] * exposureFactor
+        var g = rawG[i] * exposureFactor
+        var b = rawB[i] * exposureFactor
+        r += brightness_; g += brightness_; b += brightness_
+        r = (r - 0.5f) * contrastFactor + 0.5f
+        g = (g - 0.5f) * contrastFactor + 0.5f
+        b = (b - 0.5f) * contrastFactor + 0.5f
+        val lum0 = r * 0.299f + g * 0.587f + b * 0.114f
+        r = lum0 + (r - lum0) * satFactor
+        g = lum0 + (g - lum0) * satFactor
+        b = lum0 + (b - lum0) * satFactor
+        r = r.coerceIn(0f, 1f); g = g.coerceIn(0f, 1f); b = b.coerceIn(0f, 1f)
+        if (invGamma != 1f) {
+            r = r.pow(invGamma); g = g.pow(invGamma); b = b.pow(invGamma)
+        }
+        adjR[i] = r; adjG[i] = g; adjB[i] = b
+        adjLum[i] = r * 0.299f + g * 0.587f + b * 0.114f
+    }
+
+    // ---------- step 4: temporal smoothing (camera/video sources only) ----------
+    val smLum: FloatArray; val smR: FloatArray; val smG: FloatArray; val smB: FloatArray
+    if (applyTemporalSmoothing) {
+        smLum = state.smLum; smR = state.smR; smG = state.smG; smB = state.smB
+        if (state.hasPrevFrame) {
+            for (i in 0 until n) {
+                smLum[i] = state.prevLum[i] * 0.55f + adjLum[i] * 0.45f
+                smR[i] = state.prevR[i] * 0.55f + adjR[i] * 0.45f
+                smG[i] = state.prevG[i] * 0.55f + adjG[i] * 0.45f
+                smB[i] = state.prevB[i] * 0.55f + adjB[i] * 0.45f
+            }
+        } else {
+            System.arraycopy(adjLum, 0, smLum, 0, n)
+            System.arraycopy(adjR, 0, smR, 0, n)
+            System.arraycopy(adjG, 0, smG, 0, n)
+            System.arraycopy(adjB, 0, smB, 0, n)
+        }
+        System.arraycopy(smLum, 0, state.prevLum, 0, n)
+        System.arraycopy(smR, 0, state.prevR, 0, n)
+        System.arraycopy(smG, 0, state.prevG, 0, n)
+        System.arraycopy(smB, 0, state.prevB, 0, n)
+        state.hasPrevFrame = true
+    } else {
+        smLum = adjLum; smR = adjR; smG = adjG; smB = adjB
+        state.hasPrevFrame = false
+    }
+
+    // ---------- step 5: distortion ----------
+    val distLum: FloatArray; val distR: FloatArray; val distG: FloatArray; val distB: FloatArray
+    val clampedDt = dtSeconds.coerceIn(0f, 0.1f)
+    state.distortionClockSeconds += clampedDt * (settings.distortionSpeed / 100f)
+    if (settings.distortionType == DistortionType.NONE) {
+        distLum = smLum; distR = smR; distG = smG; distB = smB
+    } else {
+        distLum = state.distLum; distR = state.distR; distG = state.distG; distB = state.distB
+        val amt = settings.distortionAmount / 100f
+        val time = state.distortionClockSeconds
+        val cx = (cols - 1) / 2f
+        val cy = (rows - 1) / 2f
+        val minDim = min(cols, rows).toFloat()
+        for (y in 0 until rows) {
+            for (x in 0 until cols) {
+                var dx = 0f
+                var dy = 0f
+                when (settings.distortionType) {
+                    DistortionType.SINE -> {
+                        dx = amt * cols * 0.06f * sin(y * 0.35f + time * 2f)
+                        dy = amt * rows * 0.06f * sin(x * 0.35f + time * 2.3f)
+                    }
+                    DistortionType.CIRCULAR -> {
+                        val ddx = x - cx; val ddy = y - cy
+                        val dist = hypot(ddx, ddy)
+                        val angle = atan2(ddy, ddx)
+                        val ripple = amt * minDim * 0.06f * sin(dist * 0.5f - time * 3f)
+                        dx = ripple * cos(angle); dy = ripple * sin(angle)
+                    }
+                    DistortionType.NOISE -> {
+                        dx = (hashNoiseF(x, y, time, 0f) - 0.5f) * 2f * amt * minDim * 0.08f
+                        dy = (hashNoiseF(x, y, time, 97.3f) - 0.5f) * 2f * amt * minDim * 0.08f
+                    }
+                    DistortionType.TWIRL -> {
+                        val ddx = x - cx; val ddy = y - cy
+                        val dist = hypot(ddx, ddy)
+                        val maxDist = minDim * 0.6f
+                        val twirlFactor = max(0f, 1f - dist / maxDist)
+                        val twist = amt * 3f + amt * 2f * sin(time * 0.6f)
+                        val angle = atan2(ddy, ddx) + twirlFactor * twist
+                        dx = cx + dist * cos(angle) - x
+                        dy = cy + dist * sin(angle) - y
+                    }
+                    DistortionType.PINCH -> {
+                        val ddx = x - cx; val ddy = y - cy
+                        val dist = hypot(ddx, ddy)
+                        val maxDist = minDim * 0.6f
+                        val normDist = min(1f, dist / maxDist)
+                        val pinchAmount = amt * 0.6f + amt * 0.5f * sin(time * 1.5f)
+                        val factor = max(normDist, 0.0001f).pow(1f + pinchAmount)
+                        val newDist = factor * maxDist
+                        val angle = atan2(ddy, ddx)
+                        dx = cos(angle) * newDist - ddx
+                        dy = sin(angle) * newDist - ddy
+                    }
+                    DistortionType.GLITCH -> {
+                        val bandRows = max(1, round(minDim * 0.05f).toInt())
+                        val band = y / bandRows
+                        val glitchTick = floor(time * 4f)
+                        if (hashNoiseF(band, 1, glitchTick, 77f) < 0.05f + 0.3f * amt) {
+                            dx = (hashNoiseF(band, 0, glitchTick, 55f) - 0.5f) * 2f * amt * cols * 0.15f
+                        }
+                    }
+                    DistortionType.NONE -> {}
+                }
+                val sx = (x + dx).coerceIn(0f, (cols - 1).toFloat())
+                val sy = (y + dy).coerceIn(0f, (rows - 1).toFloat())
+                val idx = y * cols + x
+                distLum[idx] = sampleBilinear(smLum, cols, rows, sx, sy)
+                distR[idx] = sampleBilinear(smR, cols, rows, sx, sy)
+                distG[idx] = sampleBilinear(smG, cols, rows, sx, sy)
+                distB[idx] = sampleBilinear(smB, cols, rows, sx, sy)
+            }
+        }
+    }
+    return AdjustedFrame(distLum, distR, distG, distB)
 }

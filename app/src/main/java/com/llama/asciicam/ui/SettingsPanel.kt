@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,6 +48,7 @@ import com.llama.asciicam.pipeline.FontChoice
 import com.llama.asciicam.pipeline.MediaSource
 import com.llama.asciicam.pipeline.NoiseType
 import com.llama.asciicam.pipeline.PaletteStop
+import com.llama.asciicam.pipeline.RenderMode
 import java.util.Locale
 
 /**
@@ -92,210 +94,208 @@ fun SettingsPanel(
             )
         }
 
-        // ---- 01 source ----
-        item { HudSectionHeader(1, "Source") }
+        // ---- top-level effect switch ----
+        item { HudSectionHeader(0, "Effect") }
         item {
             HudPanel {
-                Column {
-                    HudSegmented(
-                        options = listOf("Camera" to MediaSource.CAMERA, "Image" to MediaSource.IMAGE, "Noise" to MediaSource.NOISE),
-                        selected = settings.mediaSource,
-                        onSelect = { m -> set { it.copy(mediaSource = m) } },
-                    )
-                    when (settings.mediaSource) {
-                        MediaSource.CAMERA -> {
-                            HudToggle("Front camera", settings.useFrontCamera) { v -> set { it.copy(useFrontCamera = v) } }
-                            HudCaption("Pinch the viewfinder to zoom")
-                        }
-                        MediaSource.IMAGE -> {
-                            Spacer(Modifier.height(8.dp))
-                            HudButton("Choose image", onClick = onPickImage)
-                        }
-                        MediaSource.NOISE -> {
-                            HudDropdown(
-                                label = "Noise type",
-                                options = NoiseType.entries,
-                                selected = settings.noiseType,
-                                display = { it.name.titleCase() },
-                                onSelect = { v -> set { it.copy(noiseType = v) } },
-                            )
-                            HudSlider("Scale", settings.noiseScale, 1f, 40f, valueLabel = { "%.1f".format(Locale.US, it) }) { v -> set { it.copy(noiseScale = v) } }
-                            HudSlider("Speed", settings.noiseSpeed, 0f, 5f, valueLabel = { "%.2f".format(Locale.US, it) }) { v -> set { it.copy(noiseSpeed = v) } }
-                            HudToggle("Freeze", settings.noiseFrozen) { v -> set { it.copy(noiseFrozen = v) } }
-                        }
+                HudSegmented(
+                    options = listOf("ASCII" to RenderMode.ASCII, "Digital Stippling" to RenderMode.STIPPLING),
+                    selected = settings.renderMode,
+                    onSelect = { v -> set { it.copy(renderMode = v) } },
+                )
+            }
+        }
+
+        if (settings.renderMode == RenderMode.ASCII) {
+            sourceSection(1, settings, ::set, onPickImage)
+
+            // ---- 02 grid & font ----
+            item { HudSectionHeader(2, "Grid & Font") }
+            item {
+                HudPanel {
+                    Column {
+                        // Font size isn't a separate control: the grid always fills the
+                        // screen width for whatever Columns is set to (see
+                        // AsciiPipeline.computeGridGeometry), so Columns alone is both
+                        // the density and the zoom control.
+                        HudSlider("Columns", settings.cols.toFloat(), 20f, 120f, valueLabel = { hudInt(it) }) { v -> set { it.copy(cols = v.toInt()) } }
+                        HudSlider("Line spacing", settings.lineSpacingPercent.toFloat(), 20f, 150f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(lineSpacingPercent = v.toInt()) } }
+                        HudSlider("Char spacing", settings.charSpacingPercent.toFloat(), 50f, 300f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(charSpacingPercent = v.toInt()) } }
+                        HudDropdown(
+                            label = "Typeface",
+                            options = FontChoice.entries,
+                            selected = settings.font,
+                            display = { it.displayName },
+                            onSelect = { v -> set { it.copy(font = v) } },
+                        )
+                        HudCaption("Glyph size auto-fits the cell per font")
                     }
                 }
             }
-        }
 
-        // ---- 02 grid & font ----
-        item { HudSectionHeader(2, "Grid & Font") }
-        item {
-            HudPanel {
-                Column {
-                    // Font size isn't a separate control: the grid always fills the
-                    // screen width for whatever Columns is set to (see
-                    // AsciiPipeline.computeGridGeometry), so Columns alone is both
-                    // the density and the zoom control.
-                    HudSlider("Columns", settings.cols.toFloat(), 20f, 120f, valueLabel = { hudInt(it) }) { v -> set { it.copy(cols = v.toInt()) } }
-                    HudSlider("Line spacing", settings.lineSpacingPercent.toFloat(), 20f, 150f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(lineSpacingPercent = v.toInt()) } }
-                    HudSlider("Char spacing", settings.charSpacingPercent.toFloat(), 50f, 300f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(charSpacingPercent = v.toInt()) } }
-                    HudDropdown(
-                        label = "Typeface",
-                        options = FontChoice.entries,
-                        selected = settings.font,
-                        display = { it.displayName },
-                        onSelect = { v -> set { it.copy(font = v) } },
-                    )
-                    HudCaption("Glyph size auto-fits the cell per font")
-                }
-            }
-        }
-
-        // ---- 03 character source ----
-        item { HudSectionHeader(3, "Characters") }
-        item {
-            HudPanel {
-                Column {
-                    HudSegmented(
-                        options = listOf("Ramp" to CharSource.RAMP, "Word" to CharSource.WORD),
-                        selected = settings.charSource,
-                        onSelect = { v -> set { it.copy(charSource = v) } },
-                    )
-                    if (settings.charSource == CharSource.RAMP) {
-                        HudTextField("Ramp  dark → light", settings.rampString) { v -> set { it.copy(rampString = v) } }
-                    } else {
-                        HudTextField("Word", settings.wordString) { v -> set { it.copy(wordString = v) } }
-                        HudTextField("Fill  dark → light", settings.fillChars) { v -> set { it.copy(fillChars = v) } }
-                        HudToggle("Hold letters", settings.stableWord) { v -> set { it.copy(stableWord = v) } }
-                        if (settings.stableWord) {
-                            HudSlider("Hold time", settings.wordHoldTimeSeconds, 0.2f, 5.0f, valueLabel = { "%.1fs".format(Locale.US, it) }) { v ->
-                                set { it.copy(wordHoldTimeSeconds = v) }
+            // ---- 03 character source ----
+            item { HudSectionHeader(3, "Characters") }
+            item {
+                HudPanel {
+                    Column {
+                        HudSegmented(
+                            options = listOf("Ramp" to CharSource.RAMP, "Word" to CharSource.WORD),
+                            selected = settings.charSource,
+                            onSelect = { v -> set { it.copy(charSource = v) } },
+                        )
+                        if (settings.charSource == CharSource.RAMP) {
+                            HudTextField("Ramp  dark → light", settings.rampString) { v -> set { it.copy(rampString = v) } }
+                        } else {
+                            HudTextField("Word", settings.wordString) { v -> set { it.copy(wordString = v) } }
+                            HudTextField("Fill  dark → light", settings.fillChars) { v -> set { it.copy(fillChars = v) } }
+                            HudToggle("Hold letters", settings.stableWord) { v -> set { it.copy(stableWord = v) } }
+                            if (settings.stableWord) {
+                                HudSlider("Hold time", settings.wordHoldTimeSeconds, 0.2f, 5.0f, valueLabel = { "%.1fs".format(Locale.US, it) }) { v ->
+                                    set { it.copy(wordHoldTimeSeconds = v) }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // ---- 04 color mode ----
-        item { HudSectionHeader(4, "Color Palette") }
-        item {
-            HudPanel {
-                Column {
-                    HudSegmented(
-                        options = listOf("Source" to ColorMode.SOURCE, "Palette" to ColorMode.PALETTE),
-                        selected = settings.colorMode,
-                        onSelect = { v -> set { it.copy(colorMode = v) } },
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    HudSegmented(
-                        options = listOf("1mposter" to ColorMode.IMPOSTER, "Mono" to ColorMode.MONO),
-                        selected = settings.colorMode,
-                        onSelect = { v -> set { it.copy(colorMode = v) } },
-                    )
-                    if (settings.colorMode == ColorMode.PALETTE) {
-                        HudRule()
-                        PaletteEditor(settings.paletteStops) { stops -> set { it.copy(paletteStops = stops) } }
-                    }
-                }
-            }
-        }
-
-        // ---- 05 edges ----
-        item { HudSectionHeader(5, "Edge Detect") }
-        item {
-            HudPanel {
-                Column {
-                    HudToggle("Detect edges", settings.edgeDetectEnabled) { v -> set { it.copy(edgeDetectEnabled = v) } }
-                    if (settings.edgeDetectEnabled) {
-                        HudSlider("Threshold", settings.edgeThreshold.toFloat(), 0f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(edgeThreshold = v.toInt()) } }
-                        HudSlider("Strength", settings.edgeStrength.toFloat(), 0f, 200f, valueLabel = { hudInt(it) }) { v -> set { it.copy(edgeStrength = v.toInt()) } }
-                        HudRule()
-                        HudCaption("Outline color")
+            // ---- 04 color mode ----
+            item { HudSectionHeader(4, "Color Palette") }
+            item {
+                HudPanel {
+                    Column {
                         HudSegmented(
-                            options = listOf("Off" to EdgeColorMode.OFF, "Custom" to EdgeColorMode.CUSTOM),
-                            selected = settings.edgeColorMode,
-                            onSelect = { v -> set { it.copy(edgeColorMode = v) } },
+                            options = listOf("Source" to ColorMode.SOURCE, "Palette" to ColorMode.PALETTE),
+                            selected = settings.colorMode,
+                            onSelect = { v -> set { it.copy(colorMode = v) } },
                         )
                         Spacer(Modifier.height(4.dp))
                         HudSegmented(
-                            options = listOf("1mposter" to EdgeColorMode.IMPOSTER, "Palette" to EdgeColorMode.PALETTE),
-                            selected = settings.edgeColorMode,
-                            onSelect = { v -> set { it.copy(edgeColorMode = v) } },
+                            options = listOf("1mposter" to ColorMode.IMPOSTER, "Mono" to ColorMode.MONO),
+                            selected = settings.colorMode,
+                            onSelect = { v -> set { it.copy(colorMode = v) } },
                         )
-                        if (settings.edgeColorMode == EdgeColorMode.CUSTOM) {
-                            ColorPickerRow(argb = settings.edgeColorArgb) { c -> set { it.copy(edgeColorArgb = c) } }
-                        }
-                        if (settings.edgeColorMode == EdgeColorMode.PALETTE) {
+                        if (settings.colorMode == ColorMode.PALETTE) {
                             HudRule()
-                            PaletteEditor(settings.edgePaletteStops) { stops -> set { it.copy(edgePaletteStops = stops) } }
+                            PaletteEditor(settings.paletteStops) { stops -> set { it.copy(paletteStops = stops) } }
                         }
                     }
                 }
             }
-        }
 
-        // ---- 06 distortion ----
-        item { HudSectionHeader(6, "Distortion") }
-        item {
-            HudPanel {
-                Column {
-                    HudDropdown(
-                        label = "Type",
-                        options = DistortionType.entries,
-                        selected = settings.distortionType,
-                        display = { it.name.titleCase() },
-                        onSelect = { v -> set { it.copy(distortionType = v) } },
-                    )
-                    if (settings.distortionType != DistortionType.NONE) {
-                        HudSlider("Amount", settings.distortionAmount.toFloat(), 0f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(distortionAmount = v.toInt()) } }
-                        HudSlider("Speed", settings.distortionSpeed.toFloat(), -300f, 300f, valueLabel = { hudInt(it) }) { v -> set { it.copy(distortionSpeed = v.toInt()) } }
-                    }
-                }
-            }
-        }
-
-        // ---- 07 color adjust ----
-        item { HudSectionHeader(7, "Input Color Correction") }
-        item {
-            HudPanel {
-                Column {
-                    HudSlider("Brightness", settings.brightness.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(brightness = v.toInt()) } }
-                    HudSlider("Contrast", settings.contrast.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(contrast = v.toInt()) } }
-                    HudSlider("Exposure", settings.exposure.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(exposure = v.toInt()) } }
-                    HudSlider("Saturation", settings.saturation.toFloat(), 0f, 200f, valueLabel = { hudInt(it) }) { v -> set { it.copy(saturation = v.toInt()) } }
-                    HudSlider("Gamma", settings.gamma.toFloat(), 20f, 300f, valueLabel = { hudInt(it) }) { v -> set { it.copy(gamma = v.toInt()) } }
-                    HudRule()
-                    HudToggle("Invert ASCII", settings.invert) { v -> set { it.copy(invert = v) } }
-                    if (settings.invert) {
-                        HudSlider("Invert ASCII BG", settings.invertBgPercent.toFloat(), 0f, 100f, valueLabel = { "${hudInt(it)}%" }) { v ->
-                            set { it.copy(invertBgPercent = v.toInt()) }
+            // ---- 05 edges ----
+            item { HudSectionHeader(5, "Edge Detect") }
+            item {
+                HudPanel {
+                    Column {
+                        HudToggle("Detect edges", settings.edgeDetectEnabled) { v -> set { it.copy(edgeDetectEnabled = v) } }
+                        if (settings.edgeDetectEnabled) {
+                            HudSlider("Threshold", settings.edgeThreshold.toFloat(), 0f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(edgeThreshold = v.toInt()) } }
+                            HudSlider("Strength", settings.edgeStrength.toFloat(), 0f, 200f, valueLabel = { hudInt(it) }) { v -> set { it.copy(edgeStrength = v.toInt()) } }
+                            HudRule()
+                            HudCaption("Outline color")
+                            HudSegmented(
+                                options = listOf("Off" to EdgeColorMode.OFF, "Custom" to EdgeColorMode.CUSTOM),
+                                selected = settings.edgeColorMode,
+                                onSelect = { v -> set { it.copy(edgeColorMode = v) } },
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            HudSegmented(
+                                options = listOf("1mposter" to EdgeColorMode.IMPOSTER, "Palette" to EdgeColorMode.PALETTE),
+                                selected = settings.edgeColorMode,
+                                onSelect = { v -> set { it.copy(edgeColorMode = v) } },
+                            )
+                            if (settings.edgeColorMode == EdgeColorMode.CUSTOM) {
+                                ColorPickerRow(argb = settings.edgeColorArgb) { c -> set { it.copy(edgeColorArgb = c) } }
+                            }
+                            if (settings.edgeColorMode == EdgeColorMode.PALETTE) {
+                                HudRule()
+                                PaletteEditor(settings.edgePaletteStops) { stops -> set { it.copy(edgePaletteStops = stops) } }
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // ---- 08 block merge ----
-        item { HudSectionHeader(8, "Block Merge") }
-        item {
-            HudPanel {
-                Column {
-                    HudToggle("Merge 2×2", settings.merge2x2) { v -> set { it.copy(merge2x2 = v) } }
-                    HudToggle("Merge 3×3", settings.merge3x3) { v -> set { it.copy(merge3x3 = v) } }
-                    HudCaption("Flat areas collapse into larger glyphs")
+            distortionSection(6, settings, ::set)
+            colorCorrectionSection(7, settings, ::set) {
+                HudToggle("Invert ASCII", settings.invert) { v -> set { it.copy(invert = v) } }
+                HudRule()
+            }
+
+            // ---- 08 block merge ----
+            item { HudSectionHeader(8, "Block Merge") }
+            item {
+                HudPanel {
+                    Column {
+                        HudToggle("Merge 2×2", settings.merge2x2) { v -> set { it.copy(merge2x2 = v) } }
+                        HudToggle("Merge 3×3", settings.merge3x3) { v -> set { it.copy(merge3x3 = v) } }
+                        HudCaption("Flat areas collapse into larger glyphs")
+                    }
                 }
             }
-        }
 
-        // ---- 09 export ----
-        item { HudSectionHeader(9, "Export") }
-        item {
-            HudPanel {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f)) { HudButton("Save PNG", onClick = onExportPng) }
-                    Box(Modifier.weight(1f)) { HudButton("Save TXT", onClick = onExportTxt) }
+            // ---- 09 export ----
+            item { HudSectionHeader(9, "Export") }
+            item {
+                HudPanel {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f)) { HudButton("Save PNG", onClick = onExportPng) }
+                        Box(Modifier.weight(1f)) { HudButton("Save TXT", onClick = onExportTxt) }
+                    }
+                }
+            }
+        } else {
+            sourceSection(1, settings, ::set, onPickImage)
+
+            // ---- 02 digital stippling ----
+            item { HudSectionHeader(2, "Digital Stippling") }
+            item {
+                HudPanel {
+                    Column {
+                        HudToggle("Invert Stippling", settings.invertStippling) { v -> set { it.copy(invertStippling = v) } }
+                        HudCaption(
+                            if (settings.invertStippling) "White background, dark dots" else "Black background, bright dots",
+                        )
+                        HudRule()
+                        HudSlider("Density", settings.stippleDensity.toFloat(), 20f, 160f, valueLabel = { hudInt(it) }) { v -> set { it.copy(stippleDensity = v.toInt()) } }
+                        HudSlider("Dot size", settings.stippleDotScale.toFloat(), 30f, 200f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(stippleDotScale = v.toInt()) } }
+                    }
+                }
+            }
+
+            distortionSection(3, settings, ::set)
+            colorCorrectionSection(4, settings, ::set) {}
+
+            // ---- 05 stipple colors ----
+            item { HudSectionHeader(5, "Dot Color") }
+            item {
+                HudPanel {
+                    Column {
+                        HudSegmented(
+                            options = listOf("Source" to ColorMode.SOURCE, "Palette" to ColorMode.PALETTE),
+                            selected = settings.stippleColorMode,
+                            onSelect = { v -> set { it.copy(stippleColorMode = v) } },
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        HudSegmented(
+                            options = listOf("1mposter" to ColorMode.IMPOSTER, "Mono" to ColorMode.MONO),
+                            selected = settings.stippleColorMode,
+                            onSelect = { v -> set { it.copy(stippleColorMode = v) } },
+                        )
+                        if (settings.stippleColorMode == ColorMode.PALETTE) {
+                            HudRule()
+                            PaletteEditor(settings.stipplePaletteStops) { stops -> set { it.copy(stipplePaletteStops = stops) } }
+                        }
+                    }
+                }
+            }
+
+            // ---- 06 export ----
+            item { HudSectionHeader(6, "Export") }
+            item {
+                HudPanel {
+                    HudButton("Save PNG", onClick = onExportPng)
                 }
             }
         }
@@ -308,6 +308,105 @@ fun SettingsPanel(
                 color = Hud.TextFaint,
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+    }
+}
+
+/** "Source" section — shared verbatim between the ASCII and Digital Stippling
+ * menus, since where pixels come from is independent of what effect turns
+ * them into a picture. */
+private fun LazyListScope.sourceSection(
+    number: Int,
+    settings: AsciiSettings,
+    set: ((AsciiSettings) -> AsciiSettings) -> Unit,
+    onPickImage: () -> Unit,
+) {
+    item { HudSectionHeader(number, "Source") }
+    item {
+        HudPanel {
+            Column {
+                HudSegmented(
+                    options = listOf("Camera" to MediaSource.CAMERA, "Image" to MediaSource.IMAGE, "Noise" to MediaSource.NOISE),
+                    selected = settings.mediaSource,
+                    onSelect = { m -> set { it.copy(mediaSource = m) } },
+                )
+                when (settings.mediaSource) {
+                    MediaSource.CAMERA -> {
+                        HudToggle("Front camera", settings.useFrontCamera) { v -> set { it.copy(useFrontCamera = v) } }
+                        HudCaption("Pinch the viewfinder to zoom")
+                    }
+                    MediaSource.IMAGE -> {
+                        Spacer(Modifier.height(8.dp))
+                        HudButton("Choose image", onClick = onPickImage)
+                    }
+                    MediaSource.NOISE -> {
+                        HudDropdown(
+                            label = "Noise type",
+                            options = NoiseType.entries,
+                            selected = settings.noiseType,
+                            display = { it.name.titleCase() },
+                            onSelect = { v -> set { it.copy(noiseType = v) } },
+                        )
+                        HudSlider("Scale", settings.noiseScale, 1f, 40f, valueLabel = { "%.1f".format(Locale.US, it) }) { v -> set { it.copy(noiseScale = v) } }
+                        HudSlider("Speed", settings.noiseSpeed, 0f, 5f, valueLabel = { "%.2f".format(Locale.US, it) }) { v -> set { it.copy(noiseSpeed = v) } }
+                        HudToggle("Freeze", settings.noiseFrozen) { v -> set { it.copy(noiseFrozen = v) } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** "Distortion" section — shared between ASCII and Digital Stippling, since
+ * the warp happens upstream of either mode's final step (see
+ * `computeAdjustedFrame`). */
+private fun LazyListScope.distortionSection(
+    number: Int,
+    settings: AsciiSettings,
+    set: ((AsciiSettings) -> AsciiSettings) -> Unit,
+) {
+    item { HudSectionHeader(number, "Distortion") }
+    item {
+        HudPanel {
+            Column {
+                HudDropdown(
+                    label = "Type",
+                    options = DistortionType.entries,
+                    selected = settings.distortionType,
+                    display = { it.name.titleCase() },
+                    onSelect = { v -> set { it.copy(distortionType = v) } },
+                )
+                if (settings.distortionType != DistortionType.NONE) {
+                    HudSlider("Amount", settings.distortionAmount.toFloat(), 0f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(distortionAmount = v.toInt()) } }
+                    HudSlider("Speed", settings.distortionSpeed.toFloat(), -300f, 300f, valueLabel = { hudInt(it) }) { v -> set { it.copy(distortionSpeed = v.toInt()) } }
+                }
+            }
+        }
+    }
+}
+
+/** "Input Color Correction" section — shared between ASCII and Digital
+ * Stippling ([computeAdjustedFrame] applies brightness/contrast/exposure/
+ * saturation/gamma before either mode's own final step). [leading] lets the
+ * ASCII menu prepend its "Invert ASCII" toggle without Digital Stippling
+ * (which has its own "Invert Stippling" toggle, in its own section) needing it. */
+private fun LazyListScope.colorCorrectionSection(
+    number: Int,
+    settings: AsciiSettings,
+    set: ((AsciiSettings) -> AsciiSettings) -> Unit,
+    leading: @Composable () -> Unit,
+) {
+    item { HudSectionHeader(number, "Input Color Correction") }
+    item {
+        HudPanel {
+            Column {
+                leading()
+                HudSlider("Brightness", settings.brightness.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(brightness = v.toInt()) } }
+                HudSlider("Contrast", settings.contrast.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(contrast = v.toInt()) } }
+                HudSlider("Exposure", settings.exposure.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(exposure = v.toInt()) } }
+                HudSlider("Saturation", settings.saturation.toFloat(), 0f, 200f, valueLabel = { hudInt(it) }) { v -> set { it.copy(saturation = v.toInt()) } }
+                HudSlider("Gamma", settings.gamma.toFloat(), 20f, 300f, valueLabel = { hudInt(it) }) { v -> set { it.copy(gamma = v.toInt()) } }
+            }
         }
     }
 }

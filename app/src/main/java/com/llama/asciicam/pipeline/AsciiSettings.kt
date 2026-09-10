@@ -9,6 +9,9 @@ enum class CharSource { RAMP, WORD }
 /** How each cell's glyph is colored. */
 enum class ColorMode { SOURCE, PALETTE, IMPOSTER, MONO }
 
+/** Top-level render mode: ASCII characters, or "Digital Stippling" dots. */
+enum class RenderMode { ASCII, STIPPLING }
+
 /** How edge-detected cells are colored, separately from [ColorMode]. */
 enum class EdgeColorMode { OFF, CUSTOM, IMPOSTER, PALETTE }
 
@@ -78,6 +81,12 @@ val IMPOSTER_PALETTE_STOPS = listOf(
  * class is the plain-data snapshot passed into the pure pipeline functions.
  */
 data class AsciiSettings(
+    // Top-level effect switch. STIPPLING uses its own independent settings
+    // below (stipple*) rather than reusing the ASCII-specific ones (font,
+    // charSource, edge detection, block merge, colorMode/paletteStops, etc.),
+    // mirroring how edgePaletteStops is already independent from paletteStops.
+    val renderMode: RenderMode = RenderMode.ASCII,
+
     // Grid geometry. Font size isn't a separate setting: AsciiPipeline.computeGridGeometry
     // solves for it so the grid always fills the live viewport width for the
     // current `cols` — cols is the only density/zoom control.
@@ -113,12 +122,9 @@ data class AsciiSettings(
     val exposure: Int = 0, // -100..100
     val saturation: Int = 100, // 0..200
     val gamma: Int = 100, // 20..300
+    // While on, background is the automatic average-luminance gray at 0%
+    // saturation (see AsciiPipeline.backgroundArgbFor) instead of black.
     val invert: Boolean = false,
-    // Background gray level (0=black..100=white) used only while `invert` is
-    // on — matches the reference web tool's "Invert ASCII" background slider
-    // (default 67%, not pure white). Ignored while `invert` is off, where the
-    // background is always black.
-    val invertBgPercent: Int = 67, // 0..100
 
     // Color mode
     val colorMode: ColorMode = ColorMode.SOURCE,
@@ -137,6 +143,20 @@ data class AsciiSettings(
     val noiseScale: Float = 8f, // "feature size", range ~1..40
     val noiseSpeed: Float = 1f, // range 0..5
     val noiseFrozen: Boolean = false,
+
+    // ---- Digital Stippling (only used while renderMode == STIPPLING) ----
+    // Dot grid density, analogous to `cols` above but its own control since
+    // stippling's per-cell work (no glyph selection, no Sobel) is cheaper.
+    val stippleDensity: Int = 70, // range 20..160
+    // Dot size, as a percent of a cell's natural fit-the-grid size.
+    val stippleDotScale: Int = 100, // range 30..200
+    // Default: black background + bright dots (dot "ink" follows brightness —
+    // brighter source = more/bigger dots, plain black elsewhere). On: white
+    // background + dark dots, ink follows darkness instead — the traditional
+    // stippled-portrait look (denser in shadows).
+    val invertStippling: Boolean = false,
+    val stippleColorMode: ColorMode = ColorMode.MONO,
+    val stipplePaletteStops: List<PaletteStop> = listOf(PaletteStop("#000000"), PaletteStop("#5B8CFF"), PaletteStop("#FFFFFF")),
 ) {
     companion object {
         // Camera mode default cols is capped below the web default (110) to keep

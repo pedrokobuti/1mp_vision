@@ -98,6 +98,63 @@ object Export {
         return bmp
     }
 
+    /** Draws one [StippleFrameResult] onto an arbitrary [Canvas] — the Digital
+     * Stippling counterpart of [drawFrameInto], reused for PNG export. */
+    internal fun drawStippleFrameInto(
+        canvas: Canvas,
+        frame: StippleFrameResult,
+        geometry: StippleGeometry,
+        paint: Paint,
+        outWidth: Int,
+        outHeight: Int,
+        backgroundArgb: Int,
+    ) {
+        canvas.drawColor(backgroundArgb)
+
+        val cellSize = geometry.cellSize
+        val contentW = geometry.cols * cellSize
+        val contentH = geometry.rows * cellSize
+        if (contentW <= 0f || contentH <= 0f) return
+        val scale = minOf(outWidth / contentW, outHeight / contentH)
+        val offsetX = (outWidth - contentW * scale) / 2f
+        val offsetY = (outHeight - contentH * scale) / 2f
+
+        val save = canvas.save()
+        canvas.translate(offsetX, offsetY)
+        canvas.scale(scale, scale)
+
+        val cols = geometry.cols
+        val rows = geometry.rows
+        for (y in 0 until rows) {
+            for (x in 0 until cols) {
+                val idx = y * cols + x
+                if (!frame.visible[idx]) continue
+                val radius = frame.radiusFraction[idx] * cellSize
+                if (radius <= 0f) continue
+                val cx = (x + 0.5f + frame.offsetXFraction[idx]) * cellSize
+                val cy = (y + 0.5f + frame.offsetYFraction[idx]) * cellSize
+                paint.color = frame.colors[idx]
+                canvas.drawCircle(cx, cy, radius, paint)
+            }
+        }
+        canvas.restoreToCount(save)
+    }
+
+    /** Renders a Digital Stippling frame into a standalone bitmap at [outWidth]x[outHeight] pixels. */
+    fun renderStippleToBitmap(
+        frame: StippleFrameResult,
+        geometry: StippleGeometry,
+        backgroundArgb: Int,
+        outWidth: Int,
+        outHeight: Int,
+    ): Bitmap {
+        val bmp = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        drawStippleFrameInto(canvas, frame, geometry, paint, outWidth, outHeight, backgroundArgb)
+        return bmp
+    }
+
     /** Saves [bitmap] as a PNG into MediaStore Pictures/AsciiCam. Returns true on success. */
     fun savePng(context: Context, bitmap: Bitmap): Boolean {
         val name = timestampName("png")

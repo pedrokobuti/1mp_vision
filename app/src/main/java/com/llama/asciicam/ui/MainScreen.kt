@@ -71,6 +71,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.llama.asciicam.pipeline.AsciiCanvas
 import com.llama.asciicam.pipeline.AsciiPipeline
 import com.llama.asciicam.pipeline.MediaSource
+import com.llama.asciicam.pipeline.RenderMode
+import com.llama.asciicam.pipeline.StippleCanvas
+import com.llama.asciicam.pipeline.StipplePipeline
 import kotlinx.coroutines.launch
 
 /** Explicit white-on-black scheme for the settings panel — the panel's
@@ -116,6 +119,9 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
     val renderState = viewModel.render
     val frame = renderState?.frame
     val geometry = renderState?.geometry
+    val stippleRenderState = viewModel.stippleRender
+    val stippleFrame = stippleRenderState?.frame
+    val stippleGeometry = stippleRenderState?.geometry
     val isRecording = viewModel.isRecording
 
     var showSettings by remember { mutableStateOf(false) }
@@ -147,32 +153,42 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                 onOpenSettings = { openAppSettings(context) },
             )
         } else {
-            AsciiCanvas(
-                frame = frame,
-                geometry = geometry,
-                font = settings.font,
-                // Invert ASCII flips which brightness maps to which glyph density
-                // (handled in the pipeline) and pairs that with a pale instead of
-                // black background (AsciiPipeline.backgroundArgbFor) — glyph color
-                // itself is unaffected either way.
-                backgroundColor = Color(AsciiPipeline.backgroundArgbFor(settings)),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onSizeChanged { viewModel.reportViewportSize(it.width, it.height) }
-                    // Pinch-to-zoom over the viewfinder, as in the stock camera
-                    // app. Only meaningful while the camera is the source — the
-                    // image and noise sources have no sensor to zoom. Keyed on
-                    // mediaSource so the gesture detector is dropped entirely
-                    // rather than sitting there swallowing pinches for a source
-                    // that can't act on them.
-                    .pointerInput(settings.mediaSource) {
-                        if (settings.mediaSource != MediaSource.CAMERA) return@pointerInput
-                        detectTransformGestures { _, _, gestureZoom, _ ->
-                            viewModel.onPinchZoom(gestureZoom)
-                        }
-                    },
-            )
-            if (frame == null) {
+            val viewfinderModifier = Modifier
+                .fillMaxSize()
+                .onSizeChanged { viewModel.reportViewportSize(it.width, it.height) }
+                // Pinch-to-zoom over the viewfinder, as in the stock camera
+                // app. Only meaningful while the camera is the source — the
+                // image and noise sources have no sensor to zoom. Keyed on
+                // mediaSource so the gesture detector is dropped entirely
+                // rather than sitting there swallowing pinches for a source
+                // that can't act on them.
+                .pointerInput(settings.mediaSource) {
+                    if (settings.mediaSource != MediaSource.CAMERA) return@pointerInput
+                    detectTransformGestures { _, _, gestureZoom, _ ->
+                        viewModel.onPinchZoom(gestureZoom)
+                    }
+                }
+            if (settings.renderMode == RenderMode.ASCII) {
+                AsciiCanvas(
+                    frame = frame,
+                    geometry = geometry,
+                    font = settings.font,
+                    // Invert ASCII flips which brightness maps to which glyph density
+                    // (handled in the pipeline) and pairs that with a pale instead of
+                    // black background (AsciiPipeline.backgroundArgbFor) — glyph color
+                    // itself is unaffected either way.
+                    backgroundColor = Color(AsciiPipeline.backgroundArgbFor(settings, frame?.avgLuminance ?: 0f)),
+                    modifier = viewfinderModifier,
+                )
+            } else {
+                StippleCanvas(
+                    frame = stippleFrame,
+                    geometry = stippleGeometry,
+                    backgroundColor = Color(StipplePipeline.backgroundArgbFor(settings)),
+                    modifier = viewfinderModifier,
+                )
+            }
+            if (frame == null && stippleFrame == null) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
                     contentDescription = null,

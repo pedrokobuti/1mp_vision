@@ -18,6 +18,10 @@ import com.llama.asciicam.pipeline.GridSources
 import com.llama.asciicam.pipeline.MediaSource
 import com.llama.asciicam.pipeline.NoiseType
 import com.llama.asciicam.pipeline.PipelineState
+import com.llama.asciicam.pipeline.RenderMode
+import com.llama.asciicam.pipeline.StippleFrameResult
+import com.llama.asciicam.pipeline.StippleGeometry
+import com.llama.asciicam.pipeline.StipplePipeline
 import com.llama.asciicam.pipeline.VideoRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,6 +32,9 @@ import kotlinx.coroutines.withContext
 
 /** A frame and the grid geometry it was rendered at — always published together. */
 data class RenderState(val frame: AsciiFrameResult, val geometry: GridGeometry)
+
+/** Digital Stippling's counterpart to [RenderState]. */
+data class StippleRenderState(val frame: StippleFrameResult, val geometry: StippleGeometry)
 
 /**
  * Owns [AsciiSettings], the persistent [PipelineState], and the latest
@@ -46,6 +53,10 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
     /** Frame + geometry published together as one snapshot write, so a reader
      * that takes a single [render] snapshot never sees a mismatched pair. */
     var render by mutableStateOf<RenderState?>(null)
+        private set
+
+    /** Non-null only while [AsciiSettings.renderMode] is [RenderMode.STIPPLING]. */
+    var stippleRender by mutableStateOf<StippleRenderState?>(null)
         private set
 
     var pickedImage by mutableStateOf<Bitmap?>(null)
@@ -296,34 +307,77 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
         lastFrameNanos = now
 
         val s = settings
-        val charAspect = ensureCharAspect()
-        val geom = AsciiPipeline.computeGridGeometry(s, srcW, srcH, charAspect, viewportW.toFloat(), ensureRowPitchScale())
-        // The caller already downsampled to (cols, rows) from the *previous* geometry
-        // request; if geometry's row count differs (e.g. right after a cols change),
-        // this frame's row count won't line up. Re-derive using the actually-supplied
-        // grid dims to stay consistent, and let the next frame pick up new geometry.
-        val effectiveGeom = if (geom.cols == cols && geom.rows == rows) geom else geom.copy(cols = cols, rows = rows)
+        when (s.renderMode) {
+            RenderMode.ASCII -> {
+                val charAspect = ensureCharAspect()
+                val geom = AsciiPipeline.computeGridGeometry(s, srcW, srcH, charAspect, viewportW.toFloat(), ensureRowPitchScale())
+                // The caller already downsampled to (cols, rows) from the *previous* geometry
+                // request; if geometry's row count differs (e.g. right after a cols change),
+                // this frame's row count won't line up. Re-derive using the actually-supplied
+                // grid dims to stay consistent, and let the next frame pick up new geometry.
+                val effectiveGeom = if (geom.cols == cols && geom.rows == rows) geom else geom.copy(cols = cols, rows = rows)
 
-        val ramp = if (s.charSource == CharSource.RAMP) ensureRamp() else ""
-        val result = AsciiPipeline.process(
-            rawR = r, rawG = g, rawB = b,
-            cols = cols, rows = rows,
-            settings = s,
-            state = pipelineState,
-            dtSeconds = dt,
-            applyTemporalSmoothing = temporal,
-            sortedRamp = ramp,
-        )
-        render = RenderState(result, effectiveGeom)
+                val ramp = if (s.charSource == CharSource.RAMP) ensureRamp() else ""
+                val result = AsciiPipeline.process(
+                    rawR = r, rawG = g, rawB = b,
+                    cols = cols, rows = rows,
+                    settings = s,
+                    state = pipelineState,
+                    dtSeconds = dt,
+                    applyTemporalSmoothing = temporal,
+                    sortedRamp = ramp,
+                )
+                render = RenderState(result, effectiveGeom)
+                stippleRender = null
+            }
+            RenderMode.STIPPLING -> {
+                val geom = StipplePipeline.computeGeometry(s, srcW, srcH, viewportW.toFloat())
+                val effectiveGeom = if (geom.cols == cols && geom.rows == rows) geom else geom.copy(cols = cols, rows = rows)
+                val result = StipplePipeline.process(
+                    rawR = r, rawG = g, rawB = b,
+                    cols = cols, rows = rows,
+                    settings = s,
+                    state = pipelineState,
+                    dtSeconds = dt,
+                    applyTemporalSmoothing = temporal,
+                )
+                stippleRender = StippleRenderState(result, effectiveGeom)
+                render = null
+            }
+        }
         lastSrcW = srcW
         lastSrcH = srcH
     }
 
     /** Grid size [CameraFrameAnalyzer] should target for its next frame (called off the main thread). */
-    fun currentGridCols(): Int = settings.cols.coerceIn(1, AsciiPipeline.MAX_COLS)
-    fun currentGridRows(): Int {
-        val charAspect = ensureCharAspect()
-        return AsciiPipeline.computeGridGeometry(settings, lastSrcW, lastSrcH, charAspect, viewportW.toFloat(), ensureRowPitchScale()).rows
+    fun currentGridCols(): Int = when (settings.renderMode) {
+        RenderMode.ASCII -> settings.cols.coerceIn(1, AsciiPipeline.MAX_COLS)
+        RenderMode.STIPPLING -> settings.stippleDensity.coerceIn(1, StipplePipeline.MAX_COLS)
+    }
+    fun currentGridRows(): Int = when (settings.renderMode) {
+        RenderMode.ASCII -> {
+            val charAspect = ensureCharAspect()
+            AsciiPipeline.computeGridGeometry(settings, lastSrcW, lastSrcH, charAspect, viewportW.toFloat(), ensureRowPitchScale()).rows
+        }
+        RenderMode.STIPPLING -> StipplePipeline.computeGeometry(settings, lastSrcW, lastSrcH, viewportW.toFloat()).rows
+    }
+
+    /** (cols, rows) to downsample a [srcW]x[srcH] source frame to, per the
+     * current [AsciiSettings.renderMode] — used by the non-camera sources
+     * (noise, picked image), which pick their own grid size up front rather
+     * than being told it by [CameraFrameAnalyzer]. */
+    private fun gridDimsFor(srcW: Int, srcH: Int): Pair<Int, Int> {
+        return when (settings.renderMode) {
+            RenderMode.ASCII -> {
+                val charAspect = ensureCharAspect()
+                val g = AsciiPipeline.computeGridGeometry(settings, srcW, srcH, charAspect, viewportW.toFloat(), ensureRowPitchScale())
+                g.cols to g.rows
+            }
+            RenderMode.STIPPLING -> {
+                val g = StipplePipeline.computeGeometry(settings, srcW, srcH, viewportW.toFloat())
+                g.cols to g.rows
+            }
+        }
     }
 
     private fun manageNoiseLoop() {
@@ -339,16 +393,15 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
                 lastNanos = now
                 if (!s.noiseFrozen) noiseClock += dt.coerceIn(0f, 0.1f) * s.noiseSpeed
 
-                val charAspect = ensureCharAspect()
                 val srcW = viewportW
                 val srcH = viewportH
-                val geom = AsciiPipeline.computeGridGeometry(s, srcW, srcH, charAspect, viewportW.toFloat(), ensureRowPitchScale())
-                val n = geom.cols * geom.rows
+                val (gCols, gRows) = gridDimsFor(srcW, srcH)
+                val n = gCols * gRows
                 val rr = FloatArray(n); val gg = FloatArray(n); val bb = FloatArray(n)
-                GridSources.sampleNoise(s.noiseType, geom.cols, geom.rows, noiseClock, s.noiseScale, rr, gg, bb)
+                GridSources.sampleNoise(s.noiseType, gCols, gRows, noiseClock, s.noiseScale, rr, gg, bb)
 
                 processMutex.withLock {
-                    processAndPublish(rr, gg, bb, geom.cols, geom.rows, srcW, srcH, temporal = true)
+                    processAndPublish(rr, gg, bb, gCols, gRows, srcW, srcH, temporal = true)
                 }
                 kotlinx.coroutines.delay(33)
             }
@@ -358,35 +411,50 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
     private fun renderPickedImage() {
         val bmp = pickedImage ?: return
         viewModelScope.launch(Dispatchers.Default) {
-            val s = settings
-            val charAspect = ensureCharAspect()
-            val geom = AsciiPipeline.computeGridGeometry(s, bmp.width, bmp.height, charAspect, viewportW.toFloat(), ensureRowPitchScale())
-            val n = geom.cols * geom.rows
+            val (gCols, gRows) = gridDimsFor(bmp.width, bmp.height)
+            val n = gCols * gRows
             val rr = FloatArray(n); val gg = FloatArray(n); val bb = FloatArray(n)
-            GridSources.sampleBitmap(bmp, geom.cols, geom.rows, rr, gg, bb)
+            GridSources.sampleBitmap(bmp, gCols, gRows, rr, gg, bb)
             processMutex.withLock {
-                processAndPublish(rr, gg, bb, geom.cols, geom.rows, bmp.width, bmp.height, temporal = false)
+                processAndPublish(rr, gg, bb, gCols, gRows, bmp.width, bmp.height, temporal = false)
             }
         }
     }
 
     fun exportPng(context: android.content.Context, onDone: (Boolean) -> Unit) {
-        val snapshot = render
-        if (snapshot == null) { onDone(false); return }
-        viewModelScope.launch(Dispatchers.Default) {
-            val bgArgb = AsciiPipeline.backgroundArgbFor(settings)
-            // Use the geometry's own native content size — matching it exactly
-            // means Export.drawFrameInto's internal fit scale stays ~1.0 and
-            // there's no letterboxing. A previous hardcoded 1080x1440 rarely
-            // matched a phone's actual (much taller) aspect ratio.
-            val widthPx = (snapshot.geometry.cols * snapshot.geometry.cellW).toInt().coerceAtLeast(2)
-            val heightPx = (snapshot.geometry.rows * snapshot.geometry.rowPitch).toInt().coerceAtLeast(2)
-            val bmp = Export.renderToBitmap(
-                context, snapshot.frame, snapshot.geometry, settings.font, bgArgb, widthPx, heightPx,
-            )
-            val ok = Export.savePng(context, bmp)
-            bmp.recycle()
-            withContext(Dispatchers.Main) { onDone(ok) }
+        when (settings.renderMode) {
+            RenderMode.ASCII -> {
+                val snapshot = render
+                if (snapshot == null) { onDone(false); return }
+                viewModelScope.launch(Dispatchers.Default) {
+                    val bgArgb = AsciiPipeline.backgroundArgbFor(settings, snapshot.frame.avgLuminance)
+                    // Use the geometry's own native content size — matching it exactly
+                    // means Export.drawFrameInto's internal fit scale stays ~1.0 and
+                    // there's no letterboxing. A previous hardcoded 1080x1440 rarely
+                    // matched a phone's actual (much taller) aspect ratio.
+                    val widthPx = (snapshot.geometry.cols * snapshot.geometry.cellW).toInt().coerceAtLeast(2)
+                    val heightPx = (snapshot.geometry.rows * snapshot.geometry.rowPitch).toInt().coerceAtLeast(2)
+                    val bmp = Export.renderToBitmap(
+                        context, snapshot.frame, snapshot.geometry, settings.font, bgArgb, widthPx, heightPx,
+                    )
+                    val ok = Export.savePng(context, bmp)
+                    bmp.recycle()
+                    withContext(Dispatchers.Main) { onDone(ok) }
+                }
+            }
+            RenderMode.STIPPLING -> {
+                val snapshot = stippleRender
+                if (snapshot == null) { onDone(false); return }
+                viewModelScope.launch(Dispatchers.Default) {
+                    val bgArgb = StipplePipeline.backgroundArgbFor(settings)
+                    val widthPx = (snapshot.geometry.cols * snapshot.geometry.cellSize).toInt().coerceAtLeast(2)
+                    val heightPx = (snapshot.geometry.rows * snapshot.geometry.cellSize).toInt().coerceAtLeast(2)
+                    val bmp = Export.renderStippleToBitmap(snapshot.frame, snapshot.geometry, bgArgb, widthPx, heightPx)
+                    val ok = Export.savePng(context, bmp)
+                    bmp.recycle()
+                    withContext(Dispatchers.Main) { onDone(ok) }
+                }
+            }
         }
     }
 
@@ -427,7 +495,6 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
         val usingFallbackFont = settings.font == com.llama.asciicam.pipeline.FontChoice.MODERN_DOS &&
             typeface === android.graphics.Typeface.MONOSPACE
         viewModelScope.launch(Dispatchers.Default) {
-            val bgArgb = AsciiPipeline.backgroundArgbFor(settings)
             // Use the live geometry's actual native content size (cols*cellW x
             // rows*rowPitch), not an independently-derived viewport estimate —
             // matching it exactly means Export.drawFrameInto's internal fit
@@ -463,7 +530,7 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
             val recorder = VideoRecorder(
                 context = context,
                 typeface = typeface,
-                backgroundArgb = bgArgb,
+                backgroundArgbFor = { frame -> AsciiPipeline.backgroundArgbFor(settings, frame.avgLuminance) },
                 requestedWidth = targetW,
                 requestedHeight = targetH,
                 provideFrame = { render?.let { it.frame to it.geometry } },

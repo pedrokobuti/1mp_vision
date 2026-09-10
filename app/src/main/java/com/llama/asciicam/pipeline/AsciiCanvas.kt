@@ -87,6 +87,59 @@ fun AsciiCanvas(
     }
 }
 
+/**
+ * Draws one [StippleFrameResult] as filled circles, one per visible cell —
+ * the Digital Stippling equivalent of [AsciiCanvas]. Cells are laid out on a
+ * plain square grid ([StippleGeometry.cellSize]); each dot's radius and
+ * small position jitter come from the frame itself (see [StipplePipeline]).
+ */
+@Composable
+fun StippleCanvas(
+    frame: StippleFrameResult?,
+    geometry: StippleGeometry?,
+    backgroundColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val paint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    }
+
+    Canvas(modifier = modifier) {
+        drawIntoCanvas { canvas ->
+            val native = canvas.nativeCanvas
+            native.drawColor(backgroundColor.toArgb())
+            if (frame == null || geometry == null || geometry.cols <= 0 || geometry.rows <= 0) return@drawIntoCanvas
+
+            val cellSize = geometry.cellSize
+            val contentW = geometry.cols * cellSize
+            val contentH = geometry.rows * cellSize
+            if (contentW <= 0f || contentH <= 0f) return@drawIntoCanvas
+
+            val offsetX = (size.width - contentW) / 2f
+            val offsetY = (size.height - contentH) / 2f
+
+            native.withClip(0f, 0f, size.width, size.height) {
+                translate(offsetX, offsetY)
+
+                val cols = geometry.cols
+                val rows = geometry.rows
+                for (y in 0 until rows) {
+                    for (x in 0 until cols) {
+                        val idx = y * cols + x
+                        if (!frame.visible[idx]) continue
+                        val radius = frame.radiusFraction[idx] * cellSize
+                        if (radius <= 0f) continue
+                        val cx = (x + 0.5f + frame.offsetXFraction[idx]) * cellSize
+                        val cy = (y + 0.5f + frame.offsetYFraction[idx]) * cellSize
+                        paint.color = frame.colors[idx]
+                        drawCircle(cx, cy, radius, paint)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private fun Color.toArgb(): Int {
     val a = (alpha * 255f + 0.5f).toInt().coerceIn(0, 255)
     val r = (red * 255f + 0.5f).toInt().coerceIn(0, 255)

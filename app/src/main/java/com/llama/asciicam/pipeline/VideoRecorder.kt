@@ -85,7 +85,10 @@ import java.util.Locale
 class VideoRecorder(
     private val context: Context,
     private val typeface: Typeface,
-    private val backgroundArgb: Int,
+    // A function rather than a fixed Int: Invert ASCII's background now tracks
+    // each frame's average input luminance, so it must be recomputed per frame
+    // rather than cached once at recorder construction.
+    private val backgroundArgbFor: (AsciiFrameResult) -> Int,
     requestedWidth: Int,
     requestedHeight: Int,
     private val provideFrame: () -> Pair<AsciiFrameResult, GridGeometry>?,
@@ -371,7 +374,7 @@ class VideoRecorder(
                     if (isNewFrame) {
                         Export.drawFrameInto(
                             frameBitmapCanvas, frame, geometry, paint, baselineRatio,
-                            nativeWidth, nativeHeight, backgroundArgb,
+                            nativeWidth, nativeHeight, backgroundArgbFor(frame),
                         )
                         lastFrame = frame
                     }
