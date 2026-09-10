@@ -96,43 +96,50 @@ object Hud {
     val Info = Color(0xFF0EE1F3)
 
     /**
-     * The UI typeface: the same bundled Modern DOS face the ASCII renderer
-     * offers, so the chrome is visibly made of the same pixels as the art.
+     * The UI typeface: Modern DOS 9x16, the tall variant of the same family
+     * the ASCII renderer draws with, so the chrome is visibly made of the
+     * same pixels as the art.
      *
-     * Sizes below run larger than they would for a normal face on purpose.
-     * This font is drawn on an 8x8 cell inside a 1600-unit em — glyph advance
-     * is 800 (half the em) and cap height ~700 — so its ink is roughly 60% the
-     * height a conventional font's would be at the same `fontSize`. Roughly:
-     * pixel size ≈ 1.5x the equivalent normal-font size.
+     * Deliberately *not* the 8x8 the renderer defaults to. On a 1600-unit em
+     * this face advances 900 (9/16) with cap height 1000 and a full-em line
+     * box (ascent 1200, descent -400), where the 8x8 advances 800 with cap
+     * height 700 in a half-em box. So the same `fontSize` yields noticeably
+     * taller letters and double the line height here — the sizes below are
+     * tuned for these metrics and would need redoing if this ever changed
+     * back.
      */
-    val Pixel = FontFamily(Font(R.font.modern_dos_8x8))
+    val Pixel = FontFamily(Font(R.font.modern_dos_9x16))
 
     // FontWeight.Normal throughout, never Medium/Bold: this family ships a
     // single weight, so asking for a heavier one makes Android synthesize it
     // by smearing the glyphs sideways, which visibly softens a pixel face.
+    // Sized so a line of body text fits roughly the same character count
+    // across the panel as the reference layout does: ~27 characters at
+    // [Label], ~35 at caption size, with the section headers a step up and
+    // the masthead about twice the body.
     /** Uppercase pixel label — the sheet's base voice. */
     val Label = TextStyle(
         fontFamily = Pixel,
-        fontSize = 15.sp,
+        fontSize = 14.sp,
         letterSpacing = 0.5.sp,
         fontWeight = FontWeight.Normal,
     )
     val LabelLarge = TextStyle(
         fontFamily = Pixel,
-        fontSize = 17.sp,
+        fontSize = 18.sp,
         letterSpacing = 1.sp,
         fontWeight = FontWeight.Normal,
     )
     val Readout = TextStyle(
         fontFamily = Pixel,
-        fontSize = 15.sp,
+        fontSize = 14.sp,
         letterSpacing = 0.5.sp,
         fontWeight = FontWeight.Normal,
     )
     val Title = TextStyle(
         fontFamily = Pixel,
-        fontSize = 30.sp,
-        letterSpacing = 4.sp,
+        fontSize = 24.sp,
+        letterSpacing = 3.sp,
         fontWeight = FontWeight.Normal,
     )
 
@@ -372,7 +379,7 @@ fun HudToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 fun HudCheckbox(checked: Boolean) {
     val density = LocalDensity.current
-    Canvas(Modifier.size(18.dp)) {
+    Canvas(Modifier.size(16.dp)) {
         val strokePx = with(density) { Hud.Stroke.toPx() }
         val inset = strokePx / 2f
         val box = Size(size.width - inset * 2, size.height - inset * 2)
@@ -540,7 +547,7 @@ fun HudTextField(
 fun HudCaption(text: String) {
     Text(
         text.uppercase(Locale.US),
-        style = Hud.Label.copy(fontSize = 13.sp),
+        style = Hud.Label.copy(fontSize = 11.sp),
         color = Hud.TextDim,
         modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
     )
