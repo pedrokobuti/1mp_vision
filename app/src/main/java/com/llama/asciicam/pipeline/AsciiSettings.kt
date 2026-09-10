@@ -114,6 +114,11 @@ data class AsciiSettings(
     val saturation: Int = 100, // 0..200
     val gamma: Int = 100, // 20..300
     val invert: Boolean = false,
+    // Background gray level (0=black..100=white) used only while `invert` is
+    // on — matches the reference web tool's "Invert ASCII" background slider
+    // (default 67%, not pure white). Ignored while `invert` is off, where the
+    // background is always black.
+    val invertBgPercent: Int = 67, // 0..100
 
     // Color mode
     val colorMode: ColorMode = ColorMode.SOURCE,

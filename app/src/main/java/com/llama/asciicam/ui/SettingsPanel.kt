@@ -268,6 +268,11 @@ fun SettingsPanel(
                     HudSlider("Gamma", settings.gamma.toFloat(), 20f, 300f, valueLabel = { hudInt(it) }) { v -> set { it.copy(gamma = v.toInt()) } }
                     HudRule()
                     HudToggle("Invert ASCII", settings.invert) { v -> set { it.copy(invert = v) } }
+                    if (settings.invert) {
+                        HudSlider("Invert ASCII BG", settings.invertBgPercent.toFloat(), 0f, 100f, valueLabel = { "${hudInt(it)}%" }) { v ->
+                            set { it.copy(invertBgPercent = v.toInt()) }
+                        }
+                    }
                 }
             }
         }
@@ -316,7 +321,7 @@ private fun PanelMasthead(settings: AsciiSettings, onClose: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("ASCII CAM", style = Hud.Title, color = Hud.LineBright)
+            Text("1MP FILTER", style = Hud.Title, color = Hud.LineBright)
             Box(
                 modifier = Modifier
                     .size(28.dp)

@@ -374,7 +374,7 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
         val snapshot = render
         if (snapshot == null) { onDone(false); return }
         viewModelScope.launch(Dispatchers.Default) {
-            val bgArgb = if (settings.invert) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+            val bgArgb = AsciiPipeline.backgroundArgbFor(settings)
             // Use the geometry's own native content size — matching it exactly
             // means Export.drawFrameInto's internal fit scale stays ~1.0 and
             // there's no letterboxing. A previous hardcoded 1080x1440 rarely
@@ -427,7 +427,7 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
         val usingFallbackFont = settings.font == com.llama.asciicam.pipeline.FontChoice.MODERN_DOS &&
             typeface === android.graphics.Typeface.MONOSPACE
         viewModelScope.launch(Dispatchers.Default) {
-            val bgArgb = if (settings.invert) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+            val bgArgb = AsciiPipeline.backgroundArgbFor(settings)
             // Use the live geometry's actual native content size (cols*cellW x
             // rows*rowPitch), not an independently-derived viewport estimate —
             // matching it exactly means Export.drawFrameInto's internal fit

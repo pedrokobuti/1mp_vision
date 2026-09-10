@@ -73,17 +73,37 @@ import kotlin.math.roundToInt
  * and grouping only, so nothing here changes what a control does, just how it
  * reads.
  */
+/**
+ * The chrome's palette is deliberately restricted to exactly five colors —
+ * white, black, and the app's "1mposter colors" triad (magenta/green/cyan,
+ * see [com.llama.asciicam.pipeline.IMPOSTER_PALETTE_STOPS]) — so the
+ * interface reads as branded with the same colors the ASCII art itself can
+ * be rendered in, rather than a generic gray HUD. Hierarchy (primary vs. dim
+ * vs. faint text, hairlines) comes from *opacity* of white/black rather than
+ * introducing other hues, so nothing here strays outside that five-color set.
+ */
 object Hud {
-    val Bg = Color(0xFF07080A)
-    val PanelBg = Color(0xFF0B0D10)
-    val Line = Color(0xFF6E767F)
-    val LineBright = Color(0xFFD6DCE2)
-    val LineDim = Color(0xFF272C32)
-    val TextPrimary = Color(0xFFE9EDF1)
-    val TextDim = Color(0xFF8A929B)
-    val TextFaint = Color(0xFF5A626B)
-    val Accent = Color(0xFFFFFFFF)
-    val Danger = Color(0xFFFF6E58)
+    // Menu/panel backgrounds are solid black, full stop — panels are told
+    // apart from the page behind them only by their border, not a lighter fill.
+    val Bg = Color.Black
+    val PanelBg = Color.Black
+
+    val Line = Color.White.copy(alpha = 0.32f)
+    // A real accent hue (not just "brighter white") for the one or two things
+    // per screen that should read as actively selected/live — the section
+    // title rule, a filled slider track, a selected segment's border.
+    val LineBright = Color(0xFF0EE1F3)
+    val LineDim = Color.White.copy(alpha = 0.14f)
+    val TextPrimary = Color.White
+    val TextDim = Color.White.copy(alpha = 0.62f)
+    val TextFaint = Color.White.copy(alpha = 0.38f)
+    val Accent = Color.White
+    // Recording indicator.
+    val Danger = Color(0xFFFA008B)
+    // "On" state for checkboxes/toggles — green reads as enabled independent
+    // of language, and gives the chrome a third accent hue beyond the
+    // magenta/cyan pair above.
+    val Positive = Color(0xFF11E60D)
 
     /** Uppercase, wide-tracked technical label — the sheet's base voice. */
     val Label = TextStyle(
@@ -368,7 +388,7 @@ fun HudToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
             Text(
                 if (checked) "ON" else "OFF",
                 style = Hud.Readout,
-                color = if (checked) Hud.Accent else Hud.TextFaint,
+                color = if (checked) Hud.Positive else Hud.TextFaint,
             )
         }
     }
@@ -385,7 +405,7 @@ fun HudCheckbox(checked: Boolean) {
         val inset = 1f
         val box = Size(size.width - inset * 2, size.height - inset * 2)
         if (checked) {
-            drawRect(Hud.Accent, topLeft = Offset(inset, inset), size = box)
+            drawRect(Hud.Positive, topLeft = Offset(inset, inset), size = box)
             // Tick drawn in the negative space of the filled box.
             val w = size.width
             val h = size.height

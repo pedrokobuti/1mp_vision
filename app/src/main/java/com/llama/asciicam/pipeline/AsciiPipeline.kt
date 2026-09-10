@@ -366,8 +366,26 @@ object AsciiPipeline {
         }
 
         // ---------- luminance value used for char/threshold selection ----------
+        // Invert ASCII does two things to this value only (never to the color
+        // arrays below, so the actual ink color stays faithful to the real
+        // input): boosts contrast/exposure so the character selection reads
+        // punchier against the pale background it pairs with, then flips
+        // polarity so ink density grows as the source gets *darker*. Boost
+        // amounts (exposure -40, contrast +40) match the reference web tool's
+        // fixed correction, applied on top of whatever Input Color Correction
+        // the user has already dialed in above.
         val v = state.vArr
-        for (i in 0 until n) v[i] = if (settings.invert) 1f - distLum[i] else distLum[i]
+        if (settings.invert) {
+            val exposureBoost = 2f.pow(-40f / 50f)
+            val contrastBoost = 1f + 40f / 100f
+            for (i in 0 until n) {
+                var boosted = distLum[i] * exposureBoost
+                boosted = (boosted - 0.5f) * contrastBoost + 0.5f
+                v[i] = 1f - boosted.coerceIn(0f, 1f)
+            }
+        } else {
+            for (i in 0 until n) v[i] = distLum[i]
+        }
 
         val result = AsciiFrameResult(cols, rows)
         val chars = result.chars
@@ -523,7 +541,9 @@ object AsciiPipeline {
     private fun cellColor(settings: AsciiSettings, r: Float, g: Float, b: Float, v: Float): Int {
         return when (settings.colorMode) {
             ColorMode.SOURCE -> argb(255, r, g, b)
-            ColorMode.MONO -> 0xFFE8E8EA.toInt()
+            // Mirrored dark-on-light when Invert ASCII is on: the near-white
+            // default would vanish against the pale background it pairs with.
+            ColorMode.MONO -> if (settings.invert) 0xFF17171A.toInt() else 0xFFE8E8EA.toInt()
             ColorMode.PALETTE -> paletteColor(settings.paletteStops, v)
             ColorMode.IMPOSTER -> discretePaletteColor(IMPOSTER_PALETTE_STOPS, v)
         }
@@ -567,6 +587,19 @@ object AsciiPipeline {
     }
 
     private fun lerpInt(a: Int, b: Int, t: Float): Int = (a + (b - a) * t).toInt().coerceIn(0, 255)
+
+    /**
+     * Canvas/export/recording background color for [settings]: black, unless
+     * Invert ASCII is on, in which case it's the gray level dialed in by
+     * [AsciiSettings.invertBgPercent] (0=black..100=white; defaults to 67%,
+     * not pure white — matching the reference web tool, whose "black ink on
+     * white paper" look actually pairs with an off-white background).
+     */
+    fun backgroundArgbFor(settings: AsciiSettings): Int {
+        if (!settings.invert) return 0xFF000000.toInt()
+        val gray = round(settings.invertBgPercent.coerceIn(0, 100) / 100f * 255f).toInt().coerceIn(0, 255)
+        return (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
+    }
 
     fun parseHexColor(hex: String): Int {
         val cleaned = hex.removePrefix("#")

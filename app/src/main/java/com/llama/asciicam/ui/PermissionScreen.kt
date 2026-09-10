@@ -40,10 +40,10 @@ fun PermissionScreen(
                 "Camera permission was denied. Enable it in system settings to use the live ASCII camera view. " +
                     "You can still load an image or use the noise generator without it."
             } else if (rationaleNeeded) {
-                "AsciiCam turns your camera feed into live colored ASCII art, entirely on-device — no images are " +
+                "1mp filter turns your camera feed into live colored ASCII art, entirely on-device — no images are " +
                     "uploaded anywhere. Grant camera access to use it."
             } else {
-                "AsciiCam needs camera access to render a live ASCII view."
+                "1mp filter needs camera access to render a live ASCII view."
             },
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,

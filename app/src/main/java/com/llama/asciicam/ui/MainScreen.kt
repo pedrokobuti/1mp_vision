@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.llama.asciicam.pipeline.AsciiCanvas
+import com.llama.asciicam.pipeline.AsciiPipeline
 import com.llama.asciicam.pipeline.MediaSource
 import kotlinx.coroutines.launch
 
@@ -151,9 +152,10 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                 geometry = geometry,
                 font = settings.font,
                 // Invert ASCII flips which brightness maps to which glyph density
-                // (handled in the pipeline), and pairs that with a white instead of
-                // black background — glyph color itself is unaffected either way.
-                backgroundColor = if (settings.invert) Color.White else Color.Black,
+                // (handled in the pipeline) and pairs that with a pale instead of
+                // black background (AsciiPipeline.backgroundArgbFor) — glyph color
+                // itself is unaffected either way.
+                backgroundColor = Color(AsciiPipeline.backgroundArgbFor(settings)),
                 modifier = Modifier
                     .fillMaxSize()
                     .onSizeChanged { viewModel.reportViewportSize(it.width, it.height) }
