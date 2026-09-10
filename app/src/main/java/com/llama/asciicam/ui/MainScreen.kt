@@ -242,7 +242,7 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .border(1.dp, Hud.Danger, NotchedShape(5.dp))
+                                .border(Hud.Stroke, Hud.Danger)
                                 .padding(horizontal = 9.dp, vertical = 4.dp),
                         ) {
                             Box(
@@ -388,7 +388,7 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                         .fillMaxWidth(0.66f),
                     color = Hud.Bg,
                     contentColor = Hud.TextPrimary,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Hud.LineDim),
+                    border = androidx.compose.foundation.BorderStroke(Hud.Stroke, Hud.Line),
                 ) {
                     Box(
                         modifier = Modifier

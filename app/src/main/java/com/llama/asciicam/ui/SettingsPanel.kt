@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,15 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import com.llama.asciicam.pipeline.AsciiPipeline
 import com.llama.asciicam.pipeline.AsciiSettings
@@ -80,10 +71,10 @@ fun SettingsPanel(
         modifier = Modifier
             .fillMaxWidth()
             .background(Hud.Bg)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 18.dp),
         contentPadding = PaddingValues(bottom = 40.dp),
     ) {
-        item { PanelMasthead(settings, onClose) }
+        item { PanelMasthead(onClose) }
         item {
             HistoryBar(
                 canUndo = canUndo,
@@ -99,7 +90,7 @@ fun SettingsPanel(
         item {
             HudPanel {
                 HudSegmented(
-                    options = listOf("ASCII" to RenderMode.ASCII, "Digital Stippling" to RenderMode.STIPPLING),
+                    options = listOf("ASCII" to RenderMode.ASCII, "Stippling" to RenderMode.STIPPLING),
                     selected = settings.renderMode,
                     onSelect = { v -> set { it.copy(renderMode = v) } },
                 )
@@ -303,7 +294,7 @@ fun SettingsPanel(
         item {
             Spacer(Modifier.height(20.dp))
             Text(
-                "— END —",
+                "${Hud.BLOCK}${Hud.BLOCK} END ${Hud.BLOCK}${Hud.BLOCK}",
                 style = Hud.Label,
                 color = Hud.TextFaint,
                 modifier = Modifier.fillMaxWidth(),
@@ -326,14 +317,14 @@ private fun LazyListScope.sourceSection(
         HudPanel {
             Column {
                 HudSegmented(
-                    options = listOf("Camera" to MediaSource.CAMERA, "Image" to MediaSource.IMAGE, "Noise" to MediaSource.NOISE),
+                    options = listOf("Cam" to MediaSource.CAMERA, "Image" to MediaSource.IMAGE, "Noise" to MediaSource.NOISE),
                     selected = settings.mediaSource,
                     onSelect = { m -> set { it.copy(mediaSource = m) } },
                 )
                 when (settings.mediaSource) {
                     MediaSource.CAMERA -> {
                         HudToggle("Front camera", settings.useFrontCamera) { v -> set { it.copy(useFrontCamera = v) } }
-                        HudCaption("Pinch the viewfinder to zoom")
+                        HudCaption("Pinch the screen to zoom")
                     }
                     MediaSource.IMAGE -> {
                         Spacer(Modifier.height(8.dp))
@@ -411,42 +402,26 @@ private fun LazyListScope.colorCorrectionSection(
     }
 }
 
-/** Title block: product mark, live grid readout, close control. */
+/** Title block: product mark and close control. */
 @Composable
-private fun PanelMasthead(settings: AsciiSettings, onClose: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(top = 18.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+private fun PanelMasthead(onClose: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("1MP FILTER", style = Hud.Title, color = Hud.TextPrimary)
+        Box(
+            modifier = Modifier
+                .size(Hud.ControlHeight)
+                .border(Hud.Stroke, Hud.Line)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) { onClose() },
+            contentAlignment = Alignment.Center,
         ) {
-            Text("1MP FILTER", style = Hud.Title, color = Hud.LineBright)
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .border(1.dp, Hud.Line, NotchedShape(6.dp))
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                    ) { onClose() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("×", style = Hud.Readout, color = Hud.TextPrimary)
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(color = Hud.TextFaint)) { append("CONTROL SURFACE  //  ") }
-                withStyle(SpanStyle(color = Hud.TextDim)) { append("COLS ${hudInt(settings.cols.toFloat())}") }
-                withStyle(SpanStyle(color = Hud.TextFaint)) { append("  ·  ") }
-                withStyle(SpanStyle(color = Hud.TextDim)) { append(settings.font.displayName.uppercase(Locale.US)) }
-            },
-            style = Hud.Label,
-        )
-        Spacer(Modifier.height(10.dp))
-        Canvas(Modifier.fillMaxWidth().height(1.dp)) {
-            drawLine(Hud.Line, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1f)
+            Text("X", style = Hud.Readout, color = Hud.Danger)
         }
     }
 }
@@ -466,62 +441,48 @@ private fun HistoryBar(
     onReset: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        HudIconAction(
-            icon = Icons.AutoMirrored.Filled.Undo,
-            contentDescription = "Undo",
-            enabled = canUndo,
-            onClick = onUndo,
-        )
-        HudIconAction(
-            icon = Icons.AutoMirrored.Filled.Redo,
-            contentDescription = "Redo",
-            enabled = canRedo,
-            onClick = onRedo,
-        )
+        // CP437 arrow glyphs rather than Material icons: the bundled pixel
+        // face has ◄/► (U+25C4/U+25BA), so these are drawn from the same
+        // typeface as everything else instead of a vector in another style.
+        HudGlyphAction(glyph = "◄", tint = Hud.Info, enabled = canUndo, onClick = onUndo)
+        HudGlyphAction(glyph = "►", tint = Hud.Positive, enabled = canRedo, onClick = onRedo)
         Box(Modifier.weight(1f)) {
-            HudButton("Reset to defaults", onClick = onReset)
+            HudButton("${Hud.BLOCK}RESET${Hud.BLOCK}", tint = Hud.Danger, onClick = onReset)
         }
     }
 }
 
-/** Square outlined icon button matching [HudButton]'s silhouette. */
+/** Square framed button carrying one pixel glyph, matching [HudButton]'s frame. */
 @Composable
-private fun HudIconAction(
-    icon: ImageVector,
-    contentDescription: String,
+private fun HudGlyphAction(
+    glyph: String,
+    tint: Color,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = remember { NotchedShape(7.dp) }
-    val tint = if (enabled) Hud.TextPrimary else Hud.TextFaint
     Box(
         modifier = Modifier
-            .size(38.dp)
-            .border(1.dp, if (enabled) Hud.Line else Hud.LineDim, shape)
+            .size(Hud.ControlHeight)
+            .border(Hud.Stroke, if (enabled) Hud.Line else Hud.LineDim)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            tint = tint,
-            modifier = Modifier.size(18.dp),
-        )
+        Text(glyph, style = Hud.Readout, color = if (enabled) tint else Hud.TextFaint)
     }
 }
 
-/** Hairline separator inside a panel. */
+/** Hairline separator inside a section. */
 @Composable
 private fun HudRule() {
     Canvas(
         Modifier
             .fillMaxWidth()
-            .height(9.dp)
-            .padding(vertical = 4.dp),
+            .height(13.dp)
+            .padding(vertical = 6.dp),
     ) {
         drawLine(Hud.LineDim, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), strokeWidth = 1f)
     }
@@ -542,11 +503,11 @@ private fun ColorPickerRow(argb: Int, onChange: (Int) -> Unit) {
             PRESET_COLORS.forEach { c ->
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
-                        .background(Color(c), CircleShape)
+                        .size(26.dp)
+                        .background(Color(c))
                         .then(
-                            if (c == argb) Modifier.border(2.dp, Hud.Accent, CircleShape)
-                            else Modifier.border(1.dp, Hud.LineDim, CircleShape),
+                            if (c == argb) Modifier.border(2.dp, Hud.Accent)
+                            else Modifier.border(Hud.Stroke, Hud.LineDim),
                         )
                         .clickable { onChange(c) },
                 )
@@ -571,9 +532,9 @@ private fun PaletteEditor(stops: List<PaletteStop>, onChange: (List<PaletteStop>
             ) {
                 Box(
                     Modifier
-                        .size(18.dp)
-                        .background(Color(AsciiPipeline.parseHexColor(stop.hex)), CircleShape)
-                        .border(1.dp, Hud.LineDim, CircleShape),
+                        .size(20.dp)
+                        .background(Color(AsciiPipeline.parseHexColor(stop.hex)))
+                        .border(Hud.Stroke, Hud.Line),
                 )
                 Spacer(Modifier.width(10.dp))
                 Box(Modifier.weight(1f)) {
@@ -584,14 +545,14 @@ private fun PaletteEditor(stops: List<PaletteStop>, onChange: (List<PaletteStop>
                 Spacer(Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
-                        .size(24.dp)
-                        .border(1.dp, if (stops.size > 2) Hud.Line else Hud.LineDim, NotchedShape(5.dp))
+                        .size(28.dp)
+                        .border(Hud.Stroke, if (stops.size > 2) Hud.Line else Hud.LineDim)
                         .clickable(enabled = stops.size > 2) {
                             onChange(stops.toMutableList().also { it.removeAt(index) })
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("−", style = Hud.Readout, color = if (stops.size > 2) Hud.TextPrimary else Hud.TextFaint)
+                    Text("-", style = Hud.Readout, color = if (stops.size > 2) Hud.Danger else Hud.TextFaint)
                 }
             }
         }

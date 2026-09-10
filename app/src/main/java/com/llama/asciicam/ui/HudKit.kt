@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -33,16 +34,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -50,37 +47,32 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.llama.asciicam.R
 import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * A small HUD/telemetry-style widget kit: hairline strokes on black, notched
- * corners, wide-tracked uppercase labels and bracketed numeric readouts.
+ * The chrome's whole widget kit: a DOS terminal readout rendered in the same
+ * pixel typeface the filter itself draws with — square white rules, hard
+ * rectangles, uppercase pixel labels, bracketed numeric readouts, and inverted
+ * (solid white on black) selection.
  *
- * These replace the stock Material controls throughout the settings panel. The
- * behaviour is deliberately identical to what they replace — this is styling
- * and grouping only, so nothing here changes what a control does, just how it
- * reads.
- */
-/**
- * The chrome's palette is deliberately restricted to exactly five colors —
- * white, black, and the app's "1mposter colors" triad (magenta/green/cyan,
- * see [com.llama.asciicam.pipeline.IMPOSTER_PALETTE_STOPS]) — so the
- * interface reads as branded with the same colors the ASCII art itself can
- * be rendered in, rather than a generic gray HUD. Hierarchy (primary vs. dim
- * vs. faint text, hairlines) comes from *opacity* of white/black rather than
- * introducing other hues, so nothing here strays outside that five-color set.
+ * The palette is deliberately restricted to exactly five colors — white,
+ * black, and the app's "1mposter colors" triad (magenta/green/cyan, see
+ * [com.llama.asciicam.pipeline.IMPOSTER_PALETTE_STOPS]) — so the interface
+ * reads as branded with the same colors the art itself can be rendered in.
+ * Unlike the previous hairline-HUD styling, structure here is carried by
+ * *solid* white lines rather than tinted opacity ramps; opacity is reserved
+ * for genuinely secondary or disabled states.
  */
 object Hud {
     // Menu/panel backgrounds are solid black, full stop — panels are told
@@ -88,126 +80,104 @@ object Hud {
     val Bg = Color.Black
     val PanelBg = Color.Black
 
-    val Line = Color.White.copy(alpha = 0.32f)
-    // A real accent hue (not just "brighter white") for the one or two things
-    // per screen that should read as actively selected/live — the section
-    // title rule, a filled slider track, a selected segment's border.
-    val LineBright = Color(0xFF0EE1F3)
-    val LineDim = Color.White.copy(alpha = 0.14f)
+    /** Every frame, divider and rule: solid white, one device pixel-ish. */
+    val Line = Color.White
+    val LineDim = Color.White.copy(alpha = 0.35f)
     val TextPrimary = Color.White
-    val TextDim = Color.White.copy(alpha = 0.62f)
-    val TextFaint = Color.White.copy(alpha = 0.38f)
+    val TextDim = Color.White.copy(alpha = 0.72f)
+    val TextFaint = Color.White.copy(alpha = 0.42f)
     val Accent = Color.White
-    // Recording indicator.
-    val Danger = Color(0xFFFA008B)
-    // "On" state for checkboxes/toggles — green reads as enabled independent
-    // of language, and gives the chrome a third accent hue beyond the
-    // magenta/cyan pair above.
-    val Positive = Color(0xFF11E60D)
 
-    /** Uppercase, wide-tracked technical label — the sheet's base voice. */
+    // The three "1mposter" hues, used only on the controls that genuinely
+    // warrant a non-white accent: close/reset/record (magenta), redo and "on"
+    // (green), undo (cyan).
+    val Danger = Color(0xFFFA008B)
+    val Positive = Color(0xFF11E60D)
+    val Info = Color(0xFF0EE1F3)
+
+    /**
+     * The UI typeface: the same bundled Modern DOS face the ASCII renderer
+     * offers, so the chrome is visibly made of the same pixels as the art.
+     *
+     * Sizes below run larger than they would for a normal face on purpose.
+     * This font is drawn on an 8x8 cell inside a 1600-unit em — glyph advance
+     * is 800 (half the em) and cap height ~700 — so its ink is roughly 60% the
+     * height a conventional font's would be at the same `fontSize`. Roughly:
+     * pixel size ≈ 1.5x the equivalent normal-font size.
+     */
+    val Pixel = FontFamily(Font(R.font.modern_dos_8x8))
+
+    // FontWeight.Normal throughout, never Medium/Bold: this family ships a
+    // single weight, so asking for a heavier one makes Android synthesize it
+    // by smearing the glyphs sideways, which visibly softens a pixel face.
+    /** Uppercase pixel label — the sheet's base voice. */
     val Label = TextStyle(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 10.sp,
-        letterSpacing = 1.6.sp,
-        fontWeight = FontWeight.Medium,
+        fontFamily = Pixel,
+        fontSize = 15.sp,
+        letterSpacing = 0.5.sp,
+        fontWeight = FontWeight.Normal,
     )
     val LabelLarge = TextStyle(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 12.sp,
-        letterSpacing = 2.4.sp,
-        fontWeight = FontWeight.Medium,
+        fontFamily = Pixel,
+        fontSize = 17.sp,
+        letterSpacing = 1.sp,
+        fontWeight = FontWeight.Normal,
     )
     val Readout = TextStyle(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 11.sp,
-        letterSpacing = 0.8.sp,
-        fontWeight = FontWeight.Bold,
+        fontFamily = Pixel,
+        fontSize = 15.sp,
+        letterSpacing = 0.5.sp,
+        fontWeight = FontWeight.Normal,
     )
     val Title = TextStyle(
-        fontFamily = FontFamily.Monospace,
-        fontSize = 20.sp,
-        letterSpacing = 6.sp,
-        fontWeight = FontWeight.Light,
+        fontFamily = Pixel,
+        fontSize = 30.sp,
+        letterSpacing = 4.sp,
+        fontWeight = FontWeight.Normal,
+    )
+
+    /** CP437 shade block, used as the section-header bullet and reset flourish. */
+    const val BLOCK = "▒"
+
+    /** Standard control height — every framed box lines up on this. */
+    val ControlHeight = 42.dp
+    /** Border weight for every frame in the kit. */
+    val Stroke = 1.dp
+}
+
+/** Numbered section title: `00  //  ▒ EFFECT`. */
+@Composable
+fun HudSectionHeader(index: Int, title: String) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = Hud.TextDim)) { append("%02d".format(index)) }
+            withStyle(SpanStyle(color = Hud.TextDim)) { append("  //  ") }
+            withStyle(SpanStyle(color = Hud.TextPrimary)) { append("${Hud.BLOCK} ") }
+            withStyle(SpanStyle(color = Hud.TextPrimary)) { append(title.uppercase(Locale.US)) }
+        },
+        style = Hud.LabelLarge,
+        modifier = Modifier.fillMaxWidth().padding(top = 26.dp, bottom = 12.dp),
     )
 }
 
 /**
- * Rectangle with corners cut at 45° — the panel/button silhouette the whole
- * reference sheet is built from. Each corner is switchable, so segmented
- * controls can notch only their outer edges and butt together in the middle.
+ * One section's controls. Deliberately frameless: in this styling the
+ * numbered header is what separates sections, and boxing the contents as well
+ * would put two competing rectangles around every control.
  */
-class NotchedShape(
-    private val cut: Dp,
-    private val topStart: Boolean = true,
-    private val topEnd: Boolean = true,
-    private val bottomEnd: Boolean = true,
-    private val bottomStart: Boolean = true,
-) : Shape {
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-        val c = with(density) { cut.toPx() }.coerceAtMost(minOf(size.width, size.height) / 2f)
-        val p = Path().apply {
-            moveTo(if (topStart) c else 0f, 0f)
-            lineTo(if (topEnd) size.width - c else size.width, 0f)
-            if (topEnd) lineTo(size.width, c)
-            lineTo(size.width, if (bottomEnd) size.height - c else size.height)
-            if (bottomEnd) lineTo(size.width - c, size.height)
-            lineTo(if (bottomStart) c else 0f, size.height)
-            if (bottomStart) lineTo(0f, size.height - c)
-            lineTo(0f, if (topStart) c else 0f)
-            close()
-        }
-        return Outline.Generic(p)
-    }
-}
-
-/** Numbered section rule: `01 // SOURCE ───────────┐`. */
-@Composable
-fun HudSectionHeader(index: Int, title: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 22.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(color = Hud.TextFaint)) { append("%02d".format(index)) }
-                withStyle(SpanStyle(color = Hud.TextFaint)) { append("  //  ") }
-                withStyle(SpanStyle(color = Hud.LineBright)) { append(title.uppercase(Locale.US)) }
-            },
-            style = Hud.LabelLarge,
-        )
-        Spacer(Modifier.width(10.dp))
-        // Rule with a downward tick at its end, echoing the reference's frames.
-        Canvas(Modifier.weight(1f).height(8.dp)) {
-            val y = size.height / 2f
-            drawLine(Hud.LineDim, Offset(0f, y), Offset(size.width - 6f, y), strokeWidth = 1f)
-            drawLine(Hud.LineDim, Offset(size.width - 6f, y), Offset(size.width - 6f, size.height), strokeWidth = 1f)
-        }
-    }
-}
-
-/** Framed container with notched corners — groups one section's controls. */
 @Composable
 fun HudPanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    val shape = remember { NotchedShape(8.dp) }
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(Hud.PanelBg)
-            .border(1.dp, Hud.LineDim, shape)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-    ) { content() }
+    Box(modifier = modifier.fillMaxWidth().padding(bottom = 6.dp)) { content() }
 }
 
 /**
- * Slider drawn as a segmented telemetry track. Hand-drawn rather than a
- * restyled Material Slider so the tick marks, filled run and block thumb are
- * exactly the reference's, and so it doesn't depend on which Material3 slot
- * API this Compose version ships.
+ * Slider drawn as a plain measuring rule: one full-width line, a tick at each
+ * end and at the midpoint, and a tall block thumb. Hand-drawn rather than a
+ * restyled Material Slider so it matches the rest of the kit exactly and
+ * doesn't depend on which Material3 slot API this Compose version ships.
  *
  * The readout doubles as a text field — tap the number to type an exact value,
  * which is then clamped to `min..max`.
@@ -224,53 +194,53 @@ fun HudSlider(
     val density = LocalDensity.current
     val fraction = ((value - min) / (max - min)).coerceIn(0f, 1f)
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextDim)
+            Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextPrimary)
             HudValueReadout(value = value, min = min, max = max, valueLabel = valueLabel, onChange = onChange)
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(8.dp))
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(18.dp)
+                .height(20.dp)
                 .trackDragInput { f -> onChange(min + f * (max - min)) },
         ) {
+            val strokePx = with(density) { Hud.Stroke.toPx() }
             val midY = size.height / 2f
-            val tickCount = 40
-            val step = size.width / tickCount
-            // Unfilled ticks across the whole run, brighter over the filled part.
-            for (i in 0..tickCount) {
-                val x = i * step
-                val on = x <= size.width * fraction
-                val h = if (i % 5 == 0) size.height * 0.42f else size.height * 0.22f
+            // The rule itself, inset by half a stroke so the end ticks sit
+            // fully inside the canvas instead of being clipped in half.
+            val x0 = strokePx / 2f
+            val x1 = size.width - strokePx / 2f
+            drawLine(Hud.Line, Offset(x0, midY), Offset(x1, midY), strokeWidth = strokePx)
+
+            val tickH = size.height * 0.45f
+            for (f in listOf(0f, 0.5f, 1f)) {
+                val x = x0 + (x1 - x0) * f
                 drawLine(
-                    color = if (on) Hud.LineBright else Hud.LineDim,
-                    start = Offset(x, midY - h / 2f),
-                    end = Offset(x, midY + h / 2f),
-                    strokeWidth = 1.2f,
+                    color = Hud.Line,
+                    start = Offset(x, midY - tickH / 2f),
+                    end = Offset(x, midY + tickH / 2f),
+                    strokeWidth = strokePx,
                 )
             }
-            drawLine(Hud.LineDim, Offset(0f, midY), Offset(size.width, midY), strokeWidth = 1f)
-            drawLine(Hud.LineBright, Offset(0f, midY), Offset(size.width * fraction, midY), strokeWidth = 1.6f)
-            // Block thumb, kept fully inside the track at both extremes.
+
             val tw = with(density) { 3.dp.toPx() }
-            val th = size.height * 0.8f
-            val tx = (size.width * fraction).coerceIn(tw / 2f, size.width - tw / 2f)
+            val tx = (x0 + (x1 - x0) * fraction).coerceIn(tw / 2f, size.width - tw / 2f)
             drawRect(
                 color = Hud.Accent,
-                topLeft = Offset(tx - tw / 2f, midY - th / 2f),
-                size = Size(tw, th),
+                topLeft = Offset(tx - tw / 2f, 0f),
+                size = Size(tw, size.height),
             )
         }
     }
 }
 
-/** Bracketed `[ value ]` readout that becomes a text field when tapped. */
+/** Bracketed `[ 036 ]` readout that becomes a text field when tapped. */
 @Composable
 private fun HudValueReadout(
     value: Float,
@@ -295,8 +265,8 @@ private fun HudValueReadout(
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("[", style = Hud.Readout, color = Hud.TextFaint)
-        Spacer(Modifier.width(4.dp))
+        Text("[", style = Hud.Readout, color = Hud.TextDim)
+        Spacer(Modifier.width(5.dp))
         if (editing) {
             BasicTextField(
                 value = draft,
@@ -312,7 +282,7 @@ private fun HudValueReadout(
                 ),
                 keyboardActions = KeyboardActions(onDone = { commit() }),
                 modifier = Modifier
-                    .width(64.dp)
+                    .width(70.dp)
                     .focusRequester(focusRequester)
                     .onFocusChanged {
                         if (it.isFocused) hasTakenFocus = true
@@ -336,8 +306,8 @@ private fun HudValueReadout(
                 },
             )
         }
-        Spacer(Modifier.width(4.dp))
-        Text("]", style = Hud.Readout, color = Hud.TextFaint)
+        Spacer(Modifier.width(5.dp))
+        Text("]", style = Hud.Readout, color = Hud.TextDim)
     }
 }
 
@@ -367,7 +337,7 @@ private fun Modifier.trackDragInput(onFraction: (Float) -> Unit): Modifier =
         }
     }
 
-/** On/off control drawn as a bracketed state word rather than a Material switch. */
+/** On/off control: label, square check box, and the state spelled out. */
 @Composable
 fun HudToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
@@ -377,83 +347,70 @@ fun HudToggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
             ) { onChange(!checked) }
-            .padding(vertical = 8.dp),
+            .padding(vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextDim)
+        Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextPrimary)
         Row(verticalAlignment = Alignment.CenterVertically) {
             HudCheckbox(checked)
-            Spacer(Modifier.width(9.dp))
+            Spacer(Modifier.width(10.dp))
             Text(
                 if (checked) "ON" else "OFF",
                 style = Hud.Readout,
-                color = if (checked) Hud.Positive else Hud.TextFaint,
+                color = if (checked) Hud.TextPrimary else Hud.TextDim,
             )
         }
     }
 }
 
 /**
- * Square check control: an outlined box that fills and takes a drawn tick when
- * on. Paired with the ON/OFF readout so state is legible two ways — the mark
- * carries it at a glance, the word removes any doubt.
+ * Square check control: an outlined box that fills solid white when on.
+ * Paired with the ON/OFF readout so state is legible two ways — the filled
+ * block carries it at a glance, the word removes any doubt.
  */
 @Composable
 fun HudCheckbox(checked: Boolean) {
-    Canvas(Modifier.size(14.dp)) {
-        val inset = 1f
+    val density = LocalDensity.current
+    Canvas(Modifier.size(18.dp)) {
+        val strokePx = with(density) { Hud.Stroke.toPx() }
+        val inset = strokePx / 2f
         val box = Size(size.width - inset * 2, size.height - inset * 2)
         if (checked) {
-            drawRect(Hud.Positive, topLeft = Offset(inset, inset), size = box)
-            // Tick drawn in the negative space of the filled box.
-            val w = size.width
-            val h = size.height
-            val stroke = w * 0.13f
-            drawLine(
-                color = Color.Black,
-                start = Offset(w * 0.24f, h * 0.52f),
-                end = Offset(w * 0.43f, h * 0.72f),
-                strokeWidth = stroke,
-            )
-            drawLine(
-                color = Color.Black,
-                start = Offset(w * 0.43f, h * 0.72f),
-                end = Offset(w * 0.77f, h * 0.29f),
-                strokeWidth = stroke,
-            )
+            drawRect(Hud.Accent, topLeft = Offset(inset, inset), size = box)
         } else {
-            drawRect(Hud.Line, topLeft = Offset(inset, inset), size = box, style = Stroke(width = 1.3f))
+            drawRect(Hud.Line, topLeft = Offset(inset, inset), size = box, style = Stroke(width = strokePx))
         }
     }
 }
 
-/** Horizontal segmented selector — selected segment inverts to solid. */
+/**
+ * Horizontal segmented selector — one frame around the whole run with hairline
+ * dividers between cells (rather than a gapped row of separate boxes), so it
+ * reads as a single control. The selected cell inverts to solid white.
+ */
 @Composable
 fun <T> HudSegmented(
     options: List<Pair<String, T>>,
     selected: T,
     onSelect: (T) -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(Hud.ControlHeight)
+            .border(Hud.Stroke, Hud.Line),
+    ) {
         options.forEachIndexed { i, (label, value) ->
-            val isSelected = value == selected
-            val shape = remember(i, options.size) {
-                NotchedShape(
-                    cut = 6.dp,
-                    topStart = i == 0,
-                    bottomStart = i == 0,
-                    topEnd = i == options.lastIndex,
-                    bottomEnd = i == options.lastIndex,
-                )
+            if (i > 0) {
+                Box(Modifier.width(Hud.Stroke).fillMaxHeight().background(Hud.Line))
             }
+            val isSelected = value == selected
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(34.dp)
-                    .clip(shape)
+                    .fillMaxHeight()
                     .background(if (isSelected) Hud.Accent else Color.Transparent)
-                    .border(1.dp, if (isSelected) Hud.Accent else Hud.LineDim, shape)
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() },
@@ -463,30 +420,30 @@ fun <T> HudSegmented(
                 Text(
                     label.uppercase(Locale.US),
                     style = Hud.Label,
-                    color = if (isSelected) Color.Black else Hud.TextDim,
+                    color = if (isSelected) Color.Black else Hud.TextPrimary,
                 )
             }
-            if (i != options.lastIndex) Spacer(Modifier.width(4.dp))
         }
     }
 }
 
-/** Full-width action button with notched corners. */
+/** Full-width framed action button. [tint] colors the label only — every
+ * button keeps the same white frame, so an accent reads as emphasis on the
+ * action rather than a differently-shaped control. */
 @Composable
 fun HudButton(
     label: String,
     modifier: Modifier = Modifier,
     emphasized: Boolean = false,
+    tint: Color = Hud.TextPrimary,
     onClick: () -> Unit,
 ) {
-    val shape = remember { NotchedShape(7.dp) }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(38.dp)
-            .clip(shape)
+            .height(Hud.ControlHeight)
             .background(if (emphasized) Hud.Accent else Color.Transparent)
-            .border(1.dp, if (emphasized) Hud.Accent else Hud.Line, shape)
+            .border(Hud.Stroke, Hud.Line)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
@@ -494,12 +451,12 @@ fun HudButton(
         Text(
             label.uppercase(Locale.US),
             style = Hud.Label,
-            color = if (emphasized) Color.Black else Hud.TextPrimary,
+            color = if (emphasized) Color.Black else tint,
         )
     }
 }
 
-/** Labelled dropdown styled as a readout field with a caret glyph. */
+/** Labelled dropdown styled as a framed readout field with a caret glyph. */
 @Composable
 fun <T> HudDropdown(
     label: String,
@@ -509,24 +466,22 @@ fun <T> HudDropdown(
     onSelect: (T) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val shape = remember { NotchedShape(6.dp) }
-    Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
-        Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextDim)
-        Spacer(Modifier.height(6.dp))
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextPrimary)
+        Spacer(Modifier.height(8.dp))
         Box {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(36.dp)
-                    .clip(shape)
-                    .border(1.dp, Hud.LineDim, shape)
+                    .height(Hud.ControlHeight)
+                    .border(Hud.Stroke, Hud.Line)
                     .clickable { expanded = true }
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(display(selected).uppercase(Locale.US), style = Hud.Readout, color = Hud.TextPrimary)
-                Text("▼", style = Hud.Label, color = Hud.TextFaint)
+                Text("▼", style = Hud.Readout, color = Hud.TextPrimary)
             }
             DropdownMenu(
                 expanded = expanded,
@@ -557,17 +512,15 @@ fun HudTextField(
     value: String,
     onValueChange: (String) -> Unit,
 ) {
-    val shape = remember { NotchedShape(6.dp) }
-    Column(Modifier.fillMaxWidth().padding(vertical = 7.dp)) {
-        Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextDim)
-        Spacer(Modifier.height(6.dp))
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Text(label.uppercase(Locale.US), style = Hud.Label, color = Hud.TextPrimary)
+        Spacer(Modifier.height(8.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(38.dp)
-                .clip(shape)
-                .border(1.dp, Hud.LineDim, shape)
-                .padding(horizontal = 10.dp),
+                .height(Hud.ControlHeight)
+                .border(Hud.Stroke, Hud.Line)
+                .padding(horizontal = 12.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             BasicTextField(
@@ -587,9 +540,9 @@ fun HudTextField(
 fun HudCaption(text: String) {
     Text(
         text.uppercase(Locale.US),
-        style = Hud.Label.copy(fontSize = 9.sp),
-        color = Hud.TextFaint,
-        modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+        style = Hud.Label.copy(fontSize = 13.sp),
+        color = Hud.TextDim,
+        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
     )
 }
 

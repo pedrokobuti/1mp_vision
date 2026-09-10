@@ -66,19 +66,10 @@ class PipelineState {
     var wordIsLetterCell = BooleanArray(0)
     var wordElapsedSinceCommit = Float.MAX_VALUE
 
-    // ---- Digital Stippling: persistent per-dot drift animation ----
-    // Every dot's on-screen position eases from stippleStartX/Y to
-    // stippleTargetX/Y over StipplePipeline.RETARGET_CYCLE_FRAMES frames
-    // (see StipplePipeline.process); stippleOffX/Y is the current
-    // (interpolated) offset actually drawn, and stippleCycleFrame counts
-    // where the whole grid is within that shared cycle. A scratch per-cell
-    // tone-weight buffer ([stippleWeight]) is kept here too so the retarget
-    // pass doesn't allocate.
-    var stippleWeight = FloatArray(0)
-    var stippleOffX = FloatArray(0); var stippleOffY = FloatArray(0)
-    var stippleStartX = FloatArray(0); var stippleStartY = FloatArray(0)
-    var stippleTargetX = FloatArray(0); var stippleTargetY = FloatArray(0)
-    var stippleCycleFrame = 0
+    // Digital Stippling: frame counter feeding each dot's per-frame position
+    // jitter (see StipplePipeline.process). Wrapped rather than unbounded so
+    // it stays exact as a Float when handed to hashNoiseF.
+    var stippleFrame = 0
 
     fun ensureSize(cols: Int, rows: Int) {
         if (cols == this.cols && rows == this.rows) return
@@ -95,11 +86,7 @@ class PipelineState {
         wordIsLetterCell = BooleanArray(n)
         hasPrevFrame = false
         wordElapsedSinceCommit = Float.MAX_VALUE
-        stippleWeight = FloatArray(n)
-        stippleOffX = FloatArray(n); stippleOffY = FloatArray(n)
-        stippleStartX = FloatArray(n); stippleStartY = FloatArray(n)
-        stippleTargetX = FloatArray(n); stippleTargetY = FloatArray(n)
-        stippleCycleFrame = 0
+        stippleFrame = 0
     }
 
     /** Force a full reset (e.g. switching media source) without changing dimensions. */
@@ -107,10 +94,7 @@ class PipelineState {
         hasPrevFrame = false
         wordElapsedSinceCommit = Float.MAX_VALUE
         wordIsLetterCell.fill(false)
-        stippleOffX.fill(0f); stippleOffY.fill(0f)
-        stippleStartX.fill(0f); stippleStartY.fill(0f)
-        stippleTargetX.fill(0f); stippleTargetY.fill(0f)
-        stippleCycleFrame = 0
+        stippleFrame = 0
     }
 }
 
