@@ -474,6 +474,7 @@ fun HudButton(
     modifier: Modifier = Modifier,
     emphasized: Boolean = false,
     tint: Color = Hud.TextPrimary,
+    style: TextStyle = Hud.Control,
     onClick: () -> Unit,
 ) {
     Box(
@@ -483,17 +484,22 @@ fun HudButton(
             .background(if (emphasized) Hud.Accent else Color.Transparent)
             .border(Hud.Stroke, Hud.Line)
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
+            .padding(horizontal = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             label.uppercase(Locale.US),
-            style = Hud.Control,
+            style = style,
             color = if (emphasized) Color.Black else tint,
             maxLines = 1,
         )
     }
 }
+
+/** [Hud.Control] shrunk to fit a two-up button row — a pair of half-width
+ * buttons has barely half the room a full-width one does, and at the normal
+ * size a label like "PNG EXPORT" is silently clipped mid-word. */
+val HudButtonCompact: TextStyle = Hud.Control.copy(fontSize = 12.5.sp)
 
 /** Labelled dropdown styled as a framed readout field with a caret glyph. */
 @Composable

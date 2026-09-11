@@ -159,8 +159,20 @@ fun SettingsPanel(
                 }
             }
 
-            // ---- 04 color mode ----
-            item { HudSectionHeader(4, "Color Palette") }
+            // ---- 04 block merge ----
+            item { HudSectionHeader(4, "Block Merge") }
+            item {
+                HudPanel {
+                    Column {
+                        HudToggle("Merge 2×2", settings.merge2x2) { v -> set { it.copy(merge2x2 = v) } }
+                        HudToggle("Merge 3×3", settings.merge3x3) { v -> set { it.copy(merge3x3 = v) } }
+                        HudCaption("Flat areas collapse into larger glyphs")
+                    }
+                }
+            }
+
+            // ---- 05 color mode ----
+            item { HudSectionHeader(5, "Color Palette") }
             item {
                 HudPanel {
                     Column {
@@ -179,12 +191,17 @@ fun SettingsPanel(
                             HudRule()
                             PaletteEditor(settings.paletteStops) { stops -> set { it.copy(paletteStops = stops) } }
                         }
+                        if (settings.colorMode == ColorMode.MONO) {
+                            HudRule()
+                            HudCaption("Ink color")
+                            ColorPickerRow(argb = settings.monoColorArgb) { c -> set { it.copy(monoColorArgb = c) } }
+                        }
                     }
                 }
             }
 
-            // ---- 05 edges ----
-            item { HudSectionHeader(5, "Edge Detect") }
+            // ---- 06 edges ----
+            item { HudSectionHeader(6, "Edge Detect") }
             item {
                 HudPanel {
                     Column {
@@ -217,28 +234,20 @@ fun SettingsPanel(
                 }
             }
 
-            distortionSection(6, settings, ::set)
-            colorCorrectionSection(7, settings, ::set)
-
-            // ---- 08 block merge ----
-            item { HudSectionHeader(8, "Block Merge") }
-            item {
-                HudPanel {
-                    Column {
-                        HudToggle("Merge 2×2", settings.merge2x2) { v -> set { it.copy(merge2x2 = v) } }
-                        HudToggle("Merge 3×3", settings.merge3x3) { v -> set { it.copy(merge3x3 = v) } }
-                        HudCaption("Flat areas collapse into larger glyphs")
-                    }
-                }
-            }
+            distortionSection(7, settings, ::set)
+            colorCorrectionSection(8, settings, ::set)
 
             // ---- 09 export ----
             item { HudSectionHeader(9, "Export") }
             item {
                 HudPanel {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.weight(1f)) { HudButton("Save PNG", onClick = onExportPng) }
-                        Box(Modifier.weight(1f)) { HudButton("Save TXT", onClick = onExportTxt) }
+                        Box(Modifier.weight(1f)) {
+                            HudButton("PNG Export", style = HudButtonCompact, onClick = onExportPng)
+                        }
+                        Box(Modifier.weight(1f)) {
+                            HudButton("TXT Export", style = HudButtonCompact, onClick = onExportTxt)
+                        }
                     }
                 }
             }
@@ -283,6 +292,13 @@ fun SettingsPanel(
                             selected = settings.stippleColorMode,
                             onSelect = { v -> set { it.copy(stippleColorMode = v) } },
                         )
+                        if (settings.stippleColorMode == ColorMode.MONO) {
+                            HudRule()
+                            HudCaption("Dot color")
+                            ColorPickerRow(argb = settings.stippleMonoColorArgb) { c ->
+                                set { it.copy(stippleMonoColorArgb = c) }
+                            }
+                        }
                         if (settings.stippleColorMode == ColorMode.PALETTE) {
                             HudRule()
                             PaletteEditor(settings.stipplePaletteStops) { stops -> set { it.copy(stipplePaletteStops = stops) } }
@@ -295,7 +311,7 @@ fun SettingsPanel(
             item { HudSectionHeader(6, "Export") }
             item {
                 HudPanel {
-                    HudButton("Save PNG", onClick = onExportPng)
+                    HudButton("PNG Export", style = HudButtonCompact, onClick = onExportPng)
                 }
             }
         }

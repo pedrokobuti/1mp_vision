@@ -416,9 +416,7 @@ object AsciiPipeline {
     private fun cellColor(settings: AsciiSettings, r: Float, g: Float, b: Float, v: Float): Int {
         return when (settings.colorMode) {
             ColorMode.SOURCE -> argb(255, r, g, b)
-            // Mirrored dark-on-light when Invert ASCII is on: the near-white
-            // default would vanish against the pale background it pairs with.
-            ColorMode.MONO -> if (settings.invert) 0xFF17171A.toInt() else 0xFFE8E8EA.toInt()
+            ColorMode.MONO -> settings.monoColorArgb
             ColorMode.PALETTE -> paletteColor(settings.paletteStops, v)
             ColorMode.IMPOSTER -> discretePaletteColor(IMPOSTER_PALETTE_STOPS, v)
         }

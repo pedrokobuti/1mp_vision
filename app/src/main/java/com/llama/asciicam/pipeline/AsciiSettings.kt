@@ -128,6 +128,10 @@ data class AsciiSettings(
 
     // Color mode
     val colorMode: ColorMode = ColorMode.SOURCE,
+    // The single ink color used by [ColorMode.MONO]. Applied verbatim — no
+    // automatic flip when `invert` is on, since silently overriding a color
+    // the user picked would be worse than letting them pick a dark one.
+    val monoColorArgb: Int = 0xFFFFFFFF.toInt(),
     val paletteStops: List<PaletteStop> = listOf(PaletteStop("#000000"), PaletteStop("#5B8CFF"), PaletteStop("#FFFFFF")),
 
     // Block merge
@@ -156,6 +160,8 @@ data class AsciiSettings(
     // stippled-portrait look (denser in shadows).
     val invertStippling: Boolean = false,
     val stippleColorMode: ColorMode = ColorMode.MONO,
+    /** Stippling's own [ColorMode.MONO] ink color, independent of [monoColorArgb]. */
+    val stippleMonoColorArgb: Int = 0xFFFFFFFF.toInt(),
     val stipplePaletteStops: List<PaletteStop> = listOf(PaletteStop("#000000"), PaletteStop("#5B8CFF"), PaletteStop("#FFFFFF")),
 ) {
     companion object {

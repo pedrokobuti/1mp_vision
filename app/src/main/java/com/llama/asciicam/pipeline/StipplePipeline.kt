@@ -255,9 +255,7 @@ object StipplePipeline {
     private fun stippleCellColor(settings: AsciiSettings, r: Float, g: Float, b: Float, v: Float): Int {
         return when (settings.stippleColorMode) {
             ColorMode.SOURCE -> argbOf(255, r, g, b)
-            // Mirrors AsciiPipeline.cellColor's MONO: dark ink on the pale
-            // (inverted) background, near-white ink on the default black one.
-            ColorMode.MONO -> if (settings.invertStippling) 0xFF17171A.toInt() else 0xFFE8E8EA.toInt()
+            ColorMode.MONO -> settings.stippleMonoColorArgb
             ColorMode.PALETTE -> paletteColor(settings.stipplePaletteStops, v)
             ColorMode.IMPOSTER -> discretePaletteColor(IMPOSTER_PALETTE_STOPS, v)
         }
