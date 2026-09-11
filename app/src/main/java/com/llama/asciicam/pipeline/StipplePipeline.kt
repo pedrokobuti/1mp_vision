@@ -45,10 +45,18 @@ class StippleFrameResult(val cols: Int, val rows: Int) {
  * frames. So dots slide toward whichever side of their cell carries more ink
  * (brighter, or darker when inverted) and away from the thin side, which is
  * what produces genuinely denser and sparser regions rather than a lattice
- * that only resizes. Nothing here is random per frame: the motion is
- * entirely determined by the image.
+ * that only resizes.
  *
- * [MAX_DRIFT_CELLS] is the knob that decides how far this can go. Kept
+ * Two things keep that from looking mechanical. Dots don't share a cycle —
+ * each has its own fixed phase within it ([cellPhase]), so at any frame only
+ * about a fifth of them are setting off and the field never pulses in
+ * lockstep. And each target is nudged by [CHAOS_CELLS] of per-dot,
+ * per-journey randomness, so dots in identical surroundings still don't
+ * arrive at identical places. The randomness is in *where* a dot is headed,
+ * never in where it is drawn — it still walks a straight line at a steady
+ * pace, so this reads as wander rather than the per-frame jitter it replaced.
+ *
+ * [MAX_DRIFT_CELLS] is the knob that decides how far any of this can go. Kept
  * safely under one cell on purpose — let dots travel much further and they
  * pile onto their neighbors, which collapses the even spacing stippling
  * depends on and reads as clumps and holes rather than tone.
@@ -64,7 +72,16 @@ object StipplePipeline {
     private const val NEIGHBORHOOD_RADIUS_CELLS = 2
 
     /** How far a dot may sit from its cell center, as a fraction of cell size. */
-    private const val MAX_DRIFT_CELLS = 0.55f
+    private const val MAX_DRIFT_CELLS = 0.6f
+
+    /** How much of [MAX_DRIFT_CELLS] is spent on per-journey randomness rather
+     * than on the tone gradient. The tone-driven part is clamped to what's
+     * left, so the two together always stay inside the cap. */
+    private const val CHAOS_CELLS = 0.16f
+
+    /** Frame counter wrap. A multiple of [LERP_FRAMES] so phases stay
+     * continuous across the wrap. */
+    private const val FRAME_WRAP = 60_000
 
     fun computeGeometry(settings: AsciiSettings, sourceWidth: Int, sourceHeight: Int, viewportWidthPx: Float): StippleGeometry {
         val cols = settings.stippleDensity.coerceIn(10, MAX_COLS)
@@ -112,17 +129,9 @@ object StipplePipeline {
             weight[i] = if (inkIsDark) 1f - v else v
         }
 
-        // ---- drift: pick a target every LERP_FRAMES frames, travel there linearly ----
-        val cycleFrame = state.stippleCycleFrame
-        if (cycleFrame == 0) retarget(weight, cols, rows, state)
-        // Reaches exactly 1.0 on the cycle's final frame, so a dot arrives at
-        // its target just as the next target is chosen — no stall, no jump.
-        val t = (cycleFrame + 1f) / LERP_FRAMES
-        for (i in 0 until n) {
-            state.stippleOffX[i] = state.stippleStartX[i] + (state.stippleTargetX[i] - state.stippleStartX[i]) * t
-            state.stippleOffY[i] = state.stippleStartY[i] + (state.stippleTargetY[i] - state.stippleStartY[i]) * t
-        }
-        state.stippleCycleFrame = (cycleFrame + 1) % LERP_FRAMES
+        // ---- drift: each dot retargets on its own phase, then travels linearly ----
+        state.stippleFrame = (state.stippleFrame + 1) % FRAME_WRAP
+        advanceDrift(weight, cols, rows, state)
 
         for (i in 0 until n) {
             val v = lum[i].coerceIn(0f, 1f)
@@ -143,46 +152,93 @@ object StipplePipeline {
     }
 
     /**
-     * Gives every dot a fresh target: the tone-weighted centroid of the cells
-     * around it, i.e. the direction its neighborhood's ink actually lies in.
-     * A flat neighborhood averages out to zero offset and the dot sits still
-     * at its cell center, which is what keeps empty regions evenly spaced.
+     * Moves every dot one frame along its journey, and gives a new target to
+     * the ones whose journey ends this frame.
+     *
+     * A dot's target is the tone-weighted centroid of the cells around it —
+     * the direction its neighborhood's ink actually lies in — plus a small
+     * random nudge. A flat neighborhood averages to no offset, so the dot
+     * wanders only by that nudge, which is what keeps empty regions evenly
+     * spaced instead of collapsing them.
      */
-    private fun retarget(weight: FloatArray, cols: Int, rows: Int, state: PipelineState) {
+    private fun advanceDrift(weight: FloatArray, cols: Int, rows: Int, state: PipelineState) {
+        val frame = state.stippleFrame
+        val gradientCap = MAX_DRIFT_CELLS - CHAOS_CELLS
         for (y in 0 until rows) {
             for (x in 0 until cols) {
                 val i = y * cols + x
-                var sumW = 0f; var sumWx = 0f; var sumWy = 0f
-                for (dy in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
-                    val ny = y + dy
-                    if (ny < 0 || ny >= rows) continue
-                    for (dx in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
-                        val nx = x + dx
-                        if (nx < 0 || nx >= cols) continue
-                        val w = weight[ny * cols + nx]
-                        sumW += w
-                        sumWx += w * dx
-                        sumWy += w * dy
+                // Staggered: a dot's phase decides where in the cycle it is,
+                // so the grid never sets off together.
+                val step = (frame + cellPhase(x, y)) % LERP_FRAMES
+                if (step == 0) {
+                    var sumW = 0f; var sumWx = 0f; var sumWy = 0f
+                    for (dy in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
+                        val ny = y + dy
+                        if (ny < 0 || ny >= rows) continue
+                        for (dx in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
+                            val nx = x + dx
+                            if (nx < 0 || nx >= cols) continue
+                            val w = weight[ny * cols + nx]
+                            sumW += w
+                            sumWx += w * dx
+                            sumWy += w * dy
+                        }
                     }
-                }
-                var tx = 0f; var ty = 0f
-                if (sumW > 1e-4f) {
-                    tx = sumWx / sumW
-                    ty = sumWy / sumW
-                    val len = hypot(tx, ty)
-                    if (len > MAX_DRIFT_CELLS) {
-                        val s = MAX_DRIFT_CELLS / len
+                    var tx = 0f; var ty = 0f
+                    if (sumW > 1e-4f) {
+                        tx = sumWx / sumW
+                        ty = sumWy / sumW
+                        val len = hypot(tx, ty)
+                        if (len > gradientCap) {
+                            val s = gradientCap / len
+                            tx *= s; ty *= s
+                        }
+                    }
+                    // Seeded on the journey index, so a dot gets a different
+                    // nudge each leg rather than a fixed personal offset.
+                    val journey = (frame + cellPhase(x, y)) / LERP_FRAMES
+                    tx += (cellRandom(x, y, journey, 1) - 0.5f) * 2f * CHAOS_CELLS
+                    ty += (cellRandom(x, y, journey, 2) - 0.5f) * 2f * CHAOS_CELLS
+                    // The nudge is per-axis, so on a diagonal it can push the
+                    // total past the cap even though each part is within it.
+                    val total = hypot(tx, ty)
+                    if (total > MAX_DRIFT_CELLS) {
+                        val s = MAX_DRIFT_CELLS / total
                         tx *= s; ty *= s
                     }
+
+                    // The next leg starts wherever the dot actually is, so the
+                    // path stays continuous across journeys.
+                    state.stippleStartX[i] = state.stippleOffX[i]
+                    state.stippleStartY[i] = state.stippleOffY[i]
+                    state.stippleTargetX[i] = tx
+                    state.stippleTargetY[i] = ty
                 }
-                // The next leg starts wherever the dot actually is, so the
-                // path stays continuous across cycle boundaries.
-                state.stippleStartX[i] = state.stippleOffX[i]
-                state.stippleStartY[i] = state.stippleOffY[i]
-                state.stippleTargetX[i] = tx
-                state.stippleTargetY[i] = ty
+                // Reaches exactly 1.0 on the journey's final frame, so a dot
+                // arrives just as its next target is chosen — no stall.
+                val t = (step + 1f) / LERP_FRAMES
+                state.stippleOffX[i] = state.stippleStartX[i] + (state.stippleTargetX[i] - state.stippleStartX[i]) * t
+                state.stippleOffY[i] = state.stippleStartY[i] + (state.stippleTargetY[i] - state.stippleStartY[i]) * t
             }
         }
+    }
+
+    /** Which frame of the shared cycle this cell sets off on — fixed for the
+     * life of the grid, and scattered enough that neighbors rarely share it. */
+    private fun cellPhase(x: Int, y: Int): Int = (mix(x, y, 0, 0) ushr 1) % LERP_FRAMES
+
+    /** A 0..1 value from the cell, journey and [salt]. An integer hash rather
+     * than [hashNoiseF]: this runs per cell per frame, and it needs no
+     * continuity between journeys, only scatter. */
+    private fun cellRandom(x: Int, y: Int, journey: Int, salt: Int): Float =
+        (mix(x, y, journey, salt) and 0xFFFFFF) / 16777215f
+
+    private fun mix(x: Int, y: Int, z: Int, salt: Int): Int {
+        var h = x * 73856093 xor y * 19349663 xor z * 83492791 xor salt * 50331653
+        h = h xor (h ushr 13)
+        h *= 1274126177
+        h = h xor (h ushr 16)
+        return h and 0x7FFFFFFF
     }
 
     private fun stippleCellColor(settings: AsciiSettings, r: Float, g: Float, b: Float, v: Float): Int {

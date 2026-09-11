@@ -282,11 +282,6 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                     .padding(WindowInsets.navigationBars.asPaddingValues())
                     .padding(bottom = 16.dp, top = 24.dp),
             ) {
-                ModeSelectorRow(
-                    selected = settings.mediaSource,
-                    onSelect = { source -> viewModel.updateSettings { it.copy(mediaSource = source) } },
-                )
-
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 24.dp, end = 24.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -462,50 +457,6 @@ private fun ShutterButton(onClick: () -> Unit) {
                 .clip(CircleShape)
                 .background(Color.White),
         )
-    }
-}
-
-@Composable
-private fun ModeSelectorRow(selected: MediaSource, onSelect: (MediaSource) -> Unit) {
-    val modes = listOf(
-        MediaSource.NOISE to "NOISE",
-        MediaSource.CAMERA to "CAMERA",
-        MediaSource.IMAGE to "IMAGE",
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        modes.forEach { (source, label) ->
-            val isSelected = source == selected
-            // Selected mode gets a bracketed readout rather than a pill, to
-            // match the settings sheet's instrument styling.
-            Row(
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                    ) { onSelect(source) }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isSelected) {
-                    Text("[", style = Hud.Label, color = Hud.TextFaint)
-                    Spacer(Modifier.width(5.dp))
-                }
-                Text(
-                    text = label,
-                    style = Hud.Label,
-                    color = if (isSelected) Hud.Accent else Hud.TextFaint,
-                )
-                if (isSelected) {
-                    Spacer(Modifier.width(5.dp))
-                    Text("]", style = Hud.Label, color = Hud.TextFaint)
-                }
-            }
-        }
     }
 }
 

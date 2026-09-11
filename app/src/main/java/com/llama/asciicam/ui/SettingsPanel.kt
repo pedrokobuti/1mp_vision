@@ -105,7 +105,9 @@ fun SettingsPanel(
         }
 
         if (settings.renderMode == RenderMode.ASCII) {
-            sourceSection(1, settings, ::set, onPickImage)
+            sourceSection(1, settings, ::set, onPickImage) {
+                HudToggle("Invert ASCII", settings.invert) { v -> set { it.copy(invert = v) } }
+            }
 
             // ---- 02 grid & font ----
             item { HudSectionHeader(2, "Grid & Font") }
@@ -216,10 +218,7 @@ fun SettingsPanel(
             }
 
             distortionSection(6, settings, ::set)
-            colorCorrectionSection(7, settings, ::set) {
-                HudToggle("Invert ASCII", settings.invert) { v -> set { it.copy(invert = v) } }
-                HudRule()
-            }
+            colorCorrectionSection(7, settings, ::set)
 
             // ---- 08 block merge ----
             item { HudSectionHeader(8, "Block Merge") }
@@ -266,7 +265,7 @@ fun SettingsPanel(
             }
 
             distortionSection(3, settings, ::set)
-            colorCorrectionSection(4, settings, ::set) {}
+            colorCorrectionSection(4, settings, ::set)
 
             // ---- 05 stipple colors ----
             item { HudSectionHeader(5, "Dot Color") }
@@ -313,14 +312,17 @@ fun SettingsPanel(
     }
 }
 
-/** "Source" section — shared verbatim between the ASCII and Digital Stippling
- * menus, since where pixels come from is independent of what effect turns
- * them into a picture. */
+/** "Source" section — shared between the ASCII and Digital Stippling menus,
+ * since where pixels come from is independent of what effect turns them into
+ * a picture. [trailing] is each mode's own footer for the section; the ASCII
+ * menu puts its Invert toggle there, so the effect's headline switch sits
+ * near the top of the sheet rather than buried in the color section. */
 private fun LazyListScope.sourceSection(
     number: Int,
     settings: AsciiSettings,
     set: ((AsciiSettings) -> AsciiSettings) -> Unit,
     onPickImage: () -> Unit,
+    trailing: @Composable () -> Unit = {},
 ) {
     item { HudSectionHeader(number, "Source") }
     item {
@@ -353,6 +355,7 @@ private fun LazyListScope.sourceSection(
                         HudToggle("Freeze", settings.noiseFrozen) { v -> set { it.copy(noiseFrozen = v) } }
                     }
                 }
+                trailing()
             }
         }
     }
@@ -388,20 +391,16 @@ private fun LazyListScope.distortionSection(
 
 /** "Input Color Correction" section — shared between ASCII and Digital
  * Stippling ([computeAdjustedFrame] applies brightness/contrast/exposure/
- * saturation/gamma before either mode's own final step). [leading] lets the
- * ASCII menu prepend its "Invert ASCII" toggle without Digital Stippling
- * (which has its own "Invert Stippling" toggle, in its own section) needing it. */
+ * saturation/gamma before either mode's own final step). */
 private fun LazyListScope.colorCorrectionSection(
     number: Int,
     settings: AsciiSettings,
     set: ((AsciiSettings) -> AsciiSettings) -> Unit,
-    leading: @Composable () -> Unit,
 ) {
     item { HudSectionHeader(number, "Input Color Correction") }
     item {
         HudPanel {
             Column {
-                leading()
                 HudSlider("Brightness", settings.brightness.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(brightness = v.toInt()) } }
                 HudSlider("Contrast", settings.contrast.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(contrast = v.toInt()) } }
                 HudSlider("Exposure", settings.exposure.toFloat(), -100f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(exposure = v.toInt()) } }
@@ -425,7 +424,8 @@ private fun PanelMasthead(onClose: () -> Unit) {
             Text(
                 buildAnnotatedString {
                     withStyle(SpanStyle(color = Hud.Info)) { append("1") }
-                    withStyle(SpanStyle(color = Hud.Danger)) { append("MP") }
+                    withStyle(SpanStyle(color = Hud.Positive)) { append("M") }
+                    withStyle(SpanStyle(color = Hud.Danger)) { append("P") }
                     withStyle(SpanStyle(color = Hud.TextPrimary)) { append(" VISION") }
                 },
                 style = Hud.Title,
