@@ -342,6 +342,7 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
                     state = pipelineState,
                     dtSeconds = dt,
                     applyTemporalSmoothing = temporal,
+                    cellSizePx = effectiveGeom.cellSize,
                 )
                 stippleRender = StippleRenderState(result, effectiveGeom)
                 render = null
