@@ -147,7 +147,7 @@ data class AsciiSettings(
     // ---- Digital Stippling (only used while renderMode == STIPPLING) ----
     // Dot grid density, analogous to `cols` above but its own control since
     // stippling's per-cell work (no glyph selection, no Sobel) is cheaper.
-    val stippleDensity: Int = 100, // range 20..160
+    val stippleDensity: Int = 90, // range 20..160
     // Dot size, as a percent of a cell's natural fit-the-grid size.
     val stippleDotScale: Int = 110, // range 30..200
     // Default: black background + bright dots (dot "ink" follows brightness —

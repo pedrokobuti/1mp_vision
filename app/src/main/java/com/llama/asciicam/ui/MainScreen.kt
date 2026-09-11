@@ -185,7 +185,9 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                 StippleCanvas(
                     frame = stippleFrame,
                     geometry = stippleGeometry,
-                    backgroundColor = Color(StipplePipeline.backgroundArgbFor(settings)),
+                    backgroundColor = Color(
+                        StipplePipeline.backgroundArgbFor(settings, stippleFrame?.avgLuminance ?: 0f),
+                    ),
                     modifier = viewfinderModifier,
                 )
             }

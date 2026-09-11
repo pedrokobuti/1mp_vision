@@ -82,16 +82,37 @@ import java.util.Locale
  * keep this class decoupled from Compose/ViewModel plumbing — the caller
  * supplies a plain lambda.
  */
+/**
+ * One frame the recorder can encode, from either render mode — the recorder
+ * doesn't care which effect produced it, only how to draw it.
+ *
+ * [identity] is the object the "is this actually a new frame?" check compares
+ * by reference: both pipelines allocate a fresh result per processed frame, so
+ * a same-instance read means nothing new has been produced and redrawing it
+ * would be pure waste.
+ */
+sealed class RecordableFrame {
+    abstract val identity: Any
+
+    class Ascii(val frame: AsciiFrameResult, val geometry: GridGeometry) : RecordableFrame() {
+        override val identity: Any get() = frame
+    }
+
+    class Stipple(val frame: StippleFrameResult, val geometry: StippleGeometry) : RecordableFrame() {
+        override val identity: Any get() = frame
+    }
+}
+
 class VideoRecorder(
     private val context: Context,
     private val typeface: Typeface,
-    // A function rather than a fixed Int: Invert ASCII's background now tracks
+    // A function rather than a fixed Int: an inverted background now tracks
     // each frame's average input luminance, so it must be recomputed per frame
     // rather than cached once at recorder construction.
-    private val backgroundArgbFor: (AsciiFrameResult) -> Int,
+    private val backgroundArgbFor: (RecordableFrame) -> Int,
     requestedWidth: Int,
     requestedHeight: Int,
-    private val provideFrame: () -> Pair<AsciiFrameResult, GridGeometry>?,
+    private val provideFrame: () -> RecordableFrame?,
 ) {
     // Nominal rate written into the encoder's format — a rate-control hint,
     // not a cap. The loop in runLoop() submits on real elapsed timestamps and
@@ -179,6 +200,12 @@ class VideoRecorder(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).also { p ->
         p.typeface = typeface
         p.textAlign = Paint.Align.CENTER
+    }
+
+    /** Digital Stippling's counterpart to [paint] — dots are filled circles,
+     * with no typeface involved at all. */
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).also { p ->
+        p.style = Paint.Style.FILL
     }
 
     /**
@@ -353,7 +380,7 @@ class VideoRecorder(
         val minFrameIntervalNanos = 1_000_000_000L / CAPTURE_MAX_FPS
         val startNanos = System.nanoTime()
         var lastSubmitNanos = -1L
-        var lastFrame: AsciiFrameResult? = null
+        var lastFrameIdentity: Any? = null
         var submittedFrames = 0
 
         while (recording) {
@@ -365,18 +392,21 @@ class VideoRecorder(
             if (sinceLastNanos >= minFrameIntervalNanos) {
                 val current = provideFrame()
                 if (current != null) {
-                    val (frame, geometry) = current
-                    // Identity, not equality: AsciiPipeline allocates a fresh
-                    // AsciiFrameResult per processed frame, so a same-instance
-                    // read means the pipeline hasn't produced anything new and
-                    // re-rendering thousands of glyphs would be pure waste.
-                    val isNewFrame = frame !== lastFrame
+                    // Identity, not equality — see RecordableFrame.identity.
+                    val isNewFrame = current.identity !== lastFrameIdentity
                     if (isNewFrame) {
-                        Export.drawFrameInto(
-                            frameBitmapCanvas, frame, geometry, paint, baselineRatio,
-                            nativeWidth, nativeHeight, backgroundArgbFor(frame),
-                        )
-                        lastFrame = frame
+                        val background = backgroundArgbFor(current)
+                        when (current) {
+                            is RecordableFrame.Ascii -> Export.drawFrameInto(
+                                frameBitmapCanvas, current.frame, current.geometry, paint, baselineRatio,
+                                nativeWidth, nativeHeight, background,
+                            )
+                            is RecordableFrame.Stipple -> Export.drawStippleFrameInto(
+                                frameBitmapCanvas, current.frame, current.geometry, dotPaint,
+                                nativeWidth, nativeHeight, background,
+                            )
+                        }
+                        lastFrameIdentity = current.identity
                     }
                     // A static scene still needs the occasional frame so the
                     // video's timeline keeps advancing and the tail of the file

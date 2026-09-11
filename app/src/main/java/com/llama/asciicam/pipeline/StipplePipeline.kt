@@ -66,7 +66,7 @@ object StipplePipeline {
     const val MAX_COLS = 160
 
     /** Frames a dot takes to travel from its old position to its next target. */
-    private const val LERP_FRAMES = 5
+    private const val LERP_FRAMES = 6
 
     /** Neighborhood a dot's target is drawn from, in cells each direction. */
     private const val NEIGHBORHOOD_RADIUS_CELLS = 2
@@ -141,7 +141,12 @@ object StipplePipeline {
                 result.radiusFraction[i] = 0f
             } else {
                 result.visible[i] = true
-                result.radiusFraction[i] = (w.pow(0.8f) * 0.5f * dotScale).coerceIn(0f, 0.5f)
+                // Ceiling is a whole cell, not the half-cell that made dots
+                // just touch: at 0.5 the brightest dots were already at the
+                // limit with the size slider at 100%, so most of the slider's
+                // range did nothing. A full cell lets them genuinely merge at
+                // the top of the range, which is what asking for 200% means.
+                result.radiusFraction[i] = (w.pow(0.8f) * 0.5f * dotScale).coerceIn(0f, 1f)
             }
             result.offsetXFraction[i] = state.stippleOffX[i]
             result.offsetYFraction[i] = state.stippleOffY[i]
@@ -173,11 +178,17 @@ object StipplePipeline {
                 if (step == 0) {
                     var sumW = 0f; var sumWx = 0f; var sumWy = 0f
                     for (dy in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
-                        val ny = y + dy
-                        if (ny < 0 || ny >= rows) continue
+                        // Clamp to the edge rather than dropping out-of-bounds
+                        // neighbors. Dropping them leaves the window lopsided
+                        // along a border -- a cell in column 0 would only ever
+                        // see neighbors to its right, so even a perfectly flat
+                        // image pulled its dots inward, drawing a visible frame
+                        // of displaced dots around the picture. Clamping keeps
+                        // the offsets symmetric, so a flat neighborhood sums to
+                        // no pull anywhere, edges included.
+                        val ny = (y + dy).coerceIn(0, rows - 1)
                         for (dx in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
-                            val nx = x + dx
-                            if (nx < 0 || nx >= cols) continue
+                            val nx = (x + dx).coerceIn(0, cols - 1)
                             val w = weight[ny * cols + nx]
                             sumW += w
                             sumWx += w * dx
@@ -253,13 +264,15 @@ object StipplePipeline {
     }
 
     /**
-     * Background color for Digital Stippling: black by default (bright dots),
-     * white while Invert Stippling is on (dark dots) — unlike Invert ASCII,
-     * this doesn't need an automatic average-luminance gray, since flipping
-     * straight to pure white is exactly the classic "ink on paper" stippling
-     * look the reference images show.
+     * Background color for Digital Stippling: black by default (bright dots
+     * on black), and while Invert Stippling is on, the same automatic gray
+     * Invert ASCII uses — the frame's average luminance at 0% saturation (see
+     * [AsciiPipeline.backgroundArgbFor]) — so the paper tone tracks what the
+     * camera is actually looking at rather than sitting at a fixed white.
      */
-    fun backgroundArgbFor(settings: AsciiSettings): Int {
-        return if (settings.invertStippling) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
+    fun backgroundArgbFor(settings: AsciiSettings, avgLuminance: Float): Int {
+        if (!settings.invertStippling) return 0xFF000000.toInt()
+        val gray = round(avgLuminance.coerceIn(0f, 1f) * 255f).toInt().coerceIn(0, 255)
+        return (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
     }
 }

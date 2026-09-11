@@ -152,8 +152,8 @@ object Hud {
      */
     val Control = TextStyle(
         fontFamily = Pixel,
-        fontSize = 17.sp,
-        letterSpacing = 0.8.sp,
+        fontSize = 16.15.sp,
+        letterSpacing = 0.4.sp,
         fontWeight = FontWeight.Normal,
     )
     val Title = TextStyle(

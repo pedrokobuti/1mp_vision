@@ -18,6 +18,7 @@ import com.llama.asciicam.pipeline.GridSources
 import com.llama.asciicam.pipeline.MediaSource
 import com.llama.asciicam.pipeline.NoiseType
 import com.llama.asciicam.pipeline.PipelineState
+import com.llama.asciicam.pipeline.RecordableFrame
 import com.llama.asciicam.pipeline.RenderMode
 import com.llama.asciicam.pipeline.StippleFrameResult
 import com.llama.asciicam.pipeline.StippleGeometry
@@ -202,15 +203,16 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Returns every setting to its default, keeping the current media source —
-     * resetting the source too would yank the user out of whatever they're
-     * looking at, which reads as a bug rather than a reset.
+     * Returns every setting to its default except the chosen effect: reset is
+     * for undoing the dialing-in you did *within* an effect, so landing back
+     * in the other one would read as the button doing something else entirely.
+     * Everything else goes, media source included.
      */
     fun resetToDefaults() {
         val old = settings
         val defaults = AsciiSettings(
             cols = AsciiSettings.CAMERA_DEFAULT_COLS,
-            mediaSource = old.mediaSource,
+            renderMode = old.renderMode,
         )
         if (defaults == old) return
         undoStack.addLast(old)
@@ -446,7 +448,7 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
                 val snapshot = stippleRender
                 if (snapshot == null) { onDone(false); return }
                 viewModelScope.launch(Dispatchers.Default) {
-                    val bgArgb = StipplePipeline.backgroundArgbFor(settings)
+                    val bgArgb = StipplePipeline.backgroundArgbFor(settings, snapshot.frame.avgLuminance)
                     val widthPx = (snapshot.geometry.cols * snapshot.geometry.cellSize).toInt().coerceAtLeast(2)
                     val heightPx = (snapshot.geometry.rows * snapshot.geometry.cellSize).toInt().coerceAtLeast(2)
                     val bmp = Export.renderStippleToBitmap(snapshot.frame, snapshot.geometry, bgArgb, widthPx, heightPx)
@@ -515,12 +517,16 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
             // downstream of drawing (GPU-downsampling the finished, natively-
             // rendered frame — see its nativeWidth/outWidth split) instead of
             // here, so glyph rasterization itself never sees a size mismatch.
-            val snapshotGeometry = render?.geometry
+            val asciiGeometry = render?.geometry
+            val stippleGeometry = stippleRender?.geometry
             val targetW: Int
             val targetH: Int
-            if (snapshotGeometry != null) {
-                targetW = (snapshotGeometry.cols * snapshotGeometry.cellW).toInt().coerceAtLeast(2)
-                targetH = (snapshotGeometry.rows * snapshotGeometry.rowPitch).toInt().coerceAtLeast(2)
+            if (asciiGeometry != null) {
+                targetW = (asciiGeometry.cols * asciiGeometry.cellW).toInt().coerceAtLeast(2)
+                targetH = (asciiGeometry.rows * asciiGeometry.rowPitch).toInt().coerceAtLeast(2)
+            } else if (stippleGeometry != null) {
+                targetW = (stippleGeometry.cols * stippleGeometry.cellSize).toInt().coerceAtLeast(2)
+                targetH = (stippleGeometry.rows * stippleGeometry.cellSize).toInt().coerceAtLeast(2)
             } else {
                 // No frame yet (recording tapped before the first frame arrived) —
                 // fall back to the raw viewport size, still native/unscaled.
@@ -530,10 +536,20 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
             val recorder = VideoRecorder(
                 context = context,
                 typeface = typeface,
-                backgroundArgbFor = { frame -> AsciiPipeline.backgroundArgbFor(settings, frame.avgLuminance) },
+                backgroundArgbFor = { frame ->
+                    when (frame) {
+                        is RecordableFrame.Ascii -> AsciiPipeline.backgroundArgbFor(settings, frame.frame.avgLuminance)
+                        is RecordableFrame.Stipple -> StipplePipeline.backgroundArgbFor(settings, frame.frame.avgLuminance)
+                    }
+                },
                 requestedWidth = targetW,
                 requestedHeight = targetH,
-                provideFrame = { render?.let { it.frame to it.geometry } },
+                // Whichever mode is live is the one publishing frames; the
+                // other's state is null (see processAndPublish).
+                provideFrame = {
+                    render?.let { RecordableFrame.Ascii(it.frame, it.geometry) }
+                        ?: stippleRender?.let { RecordableFrame.Stipple(it.frame, it.geometry) }
+                },
             )
             val ok = recorder.start()
             // Surfaced on-screen (a Toast — Logcat needs adb, which isn't set
