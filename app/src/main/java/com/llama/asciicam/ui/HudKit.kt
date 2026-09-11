@@ -113,10 +113,8 @@ object Hud {
     // FontWeight.Normal throughout, never Medium/Bold: this family ships a
     // single weight, so asking for a heavier one makes Android synthesize it
     // by smearing the glyphs sideways, which visibly softens a pixel face.
-    // Sized so a line of body text fits roughly the same character count
-    // across the panel as the reference layout does: ~27 characters at
-    // [Label], ~35 at caption size, with the section headers a step up and
-    // the masthead about twice the body.
+    // The scale is pegged to [Label], with each step's size set from the
+    // reference layout's measured character widths relative to it.
     /** Uppercase pixel label — the sheet's base voice. */
     val Label = TextStyle(
         fontFamily = Pixel,
@@ -124,10 +122,18 @@ object Hud {
         letterSpacing = 0.5.sp,
         fontWeight = FontWeight.Normal,
     )
+
+    /**
+     * Section headers. Only a touch above [Label] — deliberately, even though
+     * a header "wants" to be bigger: the longest of them ("02 // ▒ GRID &
+     * FONT") has to survive on one line across the panel, and anything larger
+     * wraps it. The genuinely long ones ("INPUT COLOR CORRECTION") still take
+     * two lines, which is fine; these are the ones that shouldn't.
+     */
     val LabelLarge = TextStyle(
         fontFamily = Pixel,
-        fontSize = 18.sp,
-        letterSpacing = 1.sp,
+        fontSize = 15.sp,
+        letterSpacing = 0.5.sp,
         fontWeight = FontWeight.Normal,
     )
     val Readout = TextStyle(
@@ -136,10 +142,24 @@ object Hud {
         letterSpacing = 0.5.sp,
         fontWeight = FontWeight.Normal,
     )
+
+    /**
+     * Text inside a framed control — segmented cells and buttons. Larger than
+     * [Label]: these are the things being pressed, and the frame gives them
+     * the room. Not larger still, though: the longest segment label
+     * ("STIPPLING") has to fit a half-width cell on a narrow phone, and at
+     * this size it lands at ~85% of the cell — about what the reference has.
+     */
+    val Control = TextStyle(
+        fontFamily = Pixel,
+        fontSize = 17.sp,
+        letterSpacing = 0.8.sp,
+        fontWeight = FontWeight.Normal,
+    )
     val Title = TextStyle(
         fontFamily = Pixel,
-        fontSize = 24.sp,
-        letterSpacing = 3.sp,
+        fontSize = 20.sp,
+        letterSpacing = 2.5.sp,
         fontWeight = FontWeight.Normal,
     )
 
@@ -147,7 +167,11 @@ object Hud {
     const val BLOCK = "▒"
 
     /** Standard control height — every framed box lines up on this. */
-    val ControlHeight = 42.dp
+    val ControlHeight = 40.dp
+
+    /** How far a section's controls are indented past its header, so the
+     * numbered headers hang into the margin as they do in the reference. */
+    val ContentIndent = 8.dp
     /** Border weight for every frame in the kit. */
     val Stroke = 1.dp
 }
@@ -158,7 +182,9 @@ fun HudSectionHeader(index: Int, title: String) {
     Text(
         buildAnnotatedString {
             withStyle(SpanStyle(color = Hud.TextDim)) { append("%02d".format(index)) }
-            withStyle(SpanStyle(color = Hud.TextDim)) { append("  //  ") }
+            // Single spaces, not double: those four extra characters are what
+            // pushed "GRID & FONT" onto a second line.
+            withStyle(SpanStyle(color = Hud.TextDim)) { append(" // ") }
             withStyle(SpanStyle(color = Hud.TextPrimary)) { append("${Hud.BLOCK} ") }
             withStyle(SpanStyle(color = Hud.TextPrimary)) { append(title.uppercase(Locale.US)) }
         },
@@ -170,14 +196,19 @@ fun HudSectionHeader(index: Int, title: String) {
 /**
  * One section's controls. Deliberately frameless: in this styling the
  * numbered header is what separates sections, and boxing the contents as well
- * would put two competing rectangles around every control.
+ * would put two competing rectangles around every control. Indented by
+ * [Hud.ContentIndent] so the headers hang left of their own contents.
  */
 @Composable
 fun HudPanel(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-    Box(modifier = modifier.fillMaxWidth().padding(bottom = 6.dp)) { content() }
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = Hud.ContentIndent, end = Hud.ContentIndent, bottom = 6.dp),
+    ) { content() }
 }
 
 /**
@@ -426,7 +457,7 @@ fun <T> HudSegmented(
             ) {
                 Text(
                     label.uppercase(Locale.US),
-                    style = Hud.Label,
+                    style = Hud.Control,
                     color = if (isSelected) Color.Black else Hud.TextPrimary,
                 )
             }
@@ -457,8 +488,9 @@ fun HudButton(
     ) {
         Text(
             label.uppercase(Locale.US),
-            style = Hud.Label,
+            style = Hud.Control,
             color = if (emphasized) Color.Black else tint,
+            maxLines = 1,
         )
     }
 }
@@ -547,7 +579,7 @@ fun HudTextField(
 fun HudCaption(text: String) {
     Text(
         text.uppercase(Locale.US),
-        style = Hud.Label.copy(fontSize = 11.sp),
+        style = Hud.Label.copy(fontSize = 12.sp, letterSpacing = 0.3.sp),
         color = Hud.TextDim,
         modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
     )

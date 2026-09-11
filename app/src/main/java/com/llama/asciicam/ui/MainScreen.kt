@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.FlipCameraAndroid
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Icon
@@ -63,6 +62,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -229,13 +230,17 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                             ) { showSettings = true }
                             .padding(start = 12.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = "Menu",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp),
+                        // CP437's ☼ in the UI pixel face rather than a Material
+                        // gear: same typeface as the wordmark beside it, and
+                        // drawn at twice its size (96pt against 48pt in the
+                        // reference) so it reads as a mark, not an icon.
+                        Text(
+                            "☼",
+                            style = Hud.Title.copy(fontSize = 28.sp, letterSpacing = 0.sp),
+                            color = Color.White,
+                            modifier = Modifier.semantics { contentDescription = "Menu" },
                         )
-                        Spacer(Modifier.width(9.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text("MENU", style = Hud.Label, color = Color.White)
                     }
                     if (isRecording) {

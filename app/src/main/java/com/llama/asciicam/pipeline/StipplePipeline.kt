@@ -1,5 +1,6 @@
 package com.llama.asciicam.pipeline
 
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.round
@@ -16,7 +17,8 @@ class StippleFrameResult(val cols: Int, val rows: Int) {
     val visible = BooleanArray(cols * rows)
     /** Dot radius as a fraction of the cell size (0 = invisible, ~0.5 = fills the cell). */
     val radiusFraction = FloatArray(cols * rows)
-    /** This frame's jitter offset from the cell center, as a fraction of cell size. */
+    /** This frame's drift offset from the cell center, as a fraction of cell
+     * size — see [StipplePipeline]'s class doc for how a dot travels. */
     val offsetXFraction = FloatArray(cols * rows)
     val offsetYFraction = FloatArray(cols * rows)
     val colors = IntArray(cols * rows)
@@ -35,17 +37,34 @@ class StippleFrameResult(val cols: Int, val rows: Int) {
  * via iterative Lloyd relaxation against the image's density field — solid
  * for a still image, but each relaxation pass is its own full pass over the
  * point set, repeated many times, which isn't something this app's CPU-only
- * per-frame pipeline can afford at live camera framerates. Instead, each
- * grid cell owns one dot whose radius tracks local tone and whose position
- * is re-jittered inside its cell every frame, so the field shimmers like
- * film grain rather than sitting on a visible rigid lattice.
+ * per-frame pipeline can afford at live camera framerates.
+ *
+ * Instead each grid cell owns one dot, and that dot *drifts*: every
+ * [LERP_FRAMES] frames it picks a new target — the tone-weighted centroid of
+ * its own neighborhood — and travels there in a straight line over those
+ * frames. So dots slide toward whichever side of their cell carries more ink
+ * (brighter, or darker when inverted) and away from the thin side, which is
+ * what produces genuinely denser and sparser regions rather than a lattice
+ * that only resizes. Nothing here is random per frame: the motion is
+ * entirely determined by the image.
+ *
+ * [MAX_DRIFT_CELLS] is the knob that decides how far this can go. Kept
+ * safely under one cell on purpose — let dots travel much further and they
+ * pile onto their neighbors, which collapses the even spacing stippling
+ * depends on and reads as clumps and holes rather than tone.
  */
 object StipplePipeline {
 
     const val MAX_COLS = 160
 
+    /** Frames a dot takes to travel from its old position to its next target. */
+    private const val LERP_FRAMES = 5
+
+    /** Neighborhood a dot's target is drawn from, in cells each direction. */
+    private const val NEIGHBORHOOD_RADIUS_CELLS = 2
+
     /** How far a dot may sit from its cell center, as a fraction of cell size. */
-    private const val JITTER_SPREAD = 0.6f
+    private const val MAX_DRIFT_CELLS = 0.55f
 
     fun computeGeometry(settings: AsciiSettings, sourceWidth: Int, sourceHeight: Int, viewportWidthPx: Float): StippleGeometry {
         val cols = settings.stippleDensity.coerceIn(10, MAX_COLS)
@@ -87,30 +106,83 @@ object StipplePipeline {
         val dotScale = (settings.stippleDotScale / 100f).coerceAtLeast(0f)
         val minVisible = 0.04f
 
-        // Advances every frame, so each dot draws a fresh hash offset per
-        // frame: the dot field shimmers instead of sitting on a fixed grid.
-        // Wrapped well inside float-exact integer range for hashNoiseF.
-        state.stippleFrame = (state.stippleFrame + 1) % 4096
-        val jitterPhase = state.stippleFrame.toFloat()
+        val weight = state.stippleWeight
+        for (i in 0 until n) {
+            val v = lum[i].coerceIn(0f, 1f)
+            weight[i] = if (inkIsDark) 1f - v else v
+        }
+
+        // ---- drift: pick a target every LERP_FRAMES frames, travel there linearly ----
+        val cycleFrame = state.stippleCycleFrame
+        if (cycleFrame == 0) retarget(weight, cols, rows, state)
+        // Reaches exactly 1.0 on the cycle's final frame, so a dot arrives at
+        // its target just as the next target is chosen — no stall, no jump.
+        val t = (cycleFrame + 1f) / LERP_FRAMES
+        for (i in 0 until n) {
+            state.stippleOffX[i] = state.stippleStartX[i] + (state.stippleTargetX[i] - state.stippleStartX[i]) * t
+            state.stippleOffY[i] = state.stippleStartY[i] + (state.stippleTargetY[i] - state.stippleStartY[i]) * t
+        }
+        state.stippleCycleFrame = (cycleFrame + 1) % LERP_FRAMES
 
         for (i in 0 until n) {
             val v = lum[i].coerceIn(0f, 1f)
-            val weight = if (inkIsDark) 1f - v else v
-            if (weight <= minVisible) {
+            val w = weight[i]
+            if (w <= minVisible) {
                 result.visible[i] = false
                 result.radiusFraction[i] = 0f
             } else {
                 result.visible[i] = true
-                result.radiusFraction[i] = (weight.pow(0.8f) * 0.5f * dotScale).coerceIn(0f, 0.5f)
+                result.radiusFraction[i] = (w.pow(0.8f) * 0.5f * dotScale).coerceIn(0f, 0.5f)
             }
-            val x = i % cols
-            val y = i / cols
-            result.offsetXFraction[i] = (hashNoiseF(x, y, jitterPhase, 11f) - 0.5f) * JITTER_SPREAD
-            result.offsetYFraction[i] = (hashNoiseF(x, y, jitterPhase, 53f) - 0.5f) * JITTER_SPREAD
+            result.offsetXFraction[i] = state.stippleOffX[i]
+            result.offsetYFraction[i] = state.stippleOffY[i]
             result.colors[i] = stippleCellColor(settings, r[i], g[i], b[i], v)
         }
 
         return result
+    }
+
+    /**
+     * Gives every dot a fresh target: the tone-weighted centroid of the cells
+     * around it, i.e. the direction its neighborhood's ink actually lies in.
+     * A flat neighborhood averages out to zero offset and the dot sits still
+     * at its cell center, which is what keeps empty regions evenly spaced.
+     */
+    private fun retarget(weight: FloatArray, cols: Int, rows: Int, state: PipelineState) {
+        for (y in 0 until rows) {
+            for (x in 0 until cols) {
+                val i = y * cols + x
+                var sumW = 0f; var sumWx = 0f; var sumWy = 0f
+                for (dy in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
+                    val ny = y + dy
+                    if (ny < 0 || ny >= rows) continue
+                    for (dx in -NEIGHBORHOOD_RADIUS_CELLS..NEIGHBORHOOD_RADIUS_CELLS) {
+                        val nx = x + dx
+                        if (nx < 0 || nx >= cols) continue
+                        val w = weight[ny * cols + nx]
+                        sumW += w
+                        sumWx += w * dx
+                        sumWy += w * dy
+                    }
+                }
+                var tx = 0f; var ty = 0f
+                if (sumW > 1e-4f) {
+                    tx = sumWx / sumW
+                    ty = sumWy / sumW
+                    val len = hypot(tx, ty)
+                    if (len > MAX_DRIFT_CELLS) {
+                        val s = MAX_DRIFT_CELLS / len
+                        tx *= s; ty *= s
+                    }
+                }
+                // The next leg starts wherever the dot actually is, so the
+                // path stays continuous across cycle boundaries.
+                state.stippleStartX[i] = state.stippleOffX[i]
+                state.stippleStartY[i] = state.stippleOffY[i]
+                state.stippleTargetX[i] = tx
+                state.stippleTargetY[i] = ty
+            }
+        }
     }
 
     private fun stippleCellColor(settings: AsciiSettings, r: Float, g: Float, b: Float, v: Float): Int {

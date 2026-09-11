@@ -27,6 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Text
 import com.llama.asciicam.pipeline.AsciiPipeline
@@ -71,7 +74,11 @@ fun SettingsPanel(
         modifier = Modifier
             .fillMaxWidth()
             .background(Hud.Bg)
-            .padding(horizontal = 18.dp),
+            // The masthead, history row and section headers sit at this
+            // margin; a section's controls are inset further by
+            // Hud.ContentIndent (see HudPanel), so the numbered headers hang
+            // left of what they label.
+            .padding(horizontal = 12.dp),
         contentPadding = PaddingValues(bottom = 40.dp),
     ) {
         item { PanelMasthead(onClose) }
@@ -239,8 +246,11 @@ fun SettingsPanel(
         } else {
             sourceSection(1, settings, ::set, onPickImage)
 
-            // ---- 02 digital stippling ----
-            item { HudSectionHeader(2, "Digital Stippling") }
+            // ---- 02 stippling ----
+            // "Stippling", not "Digital Stippling": the longer name wraps to
+            // two lines on a 360dp-wide phone, and the mode switch directly
+            // above already says which effect this is.
+            item { HudSectionHeader(2, "Stippling") }
             item {
                 HudPanel {
                     Column {
@@ -407,10 +417,21 @@ private fun LazyListScope.colorCorrectionSection(
 private fun PanelMasthead(onClose: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("1MP FILTER", style = Hud.Title, color = Hud.TextPrimary)
+        // Centered in the space the close button leaves, rather than pinned
+        // left — so the mark sits under the middle of the panel.
+        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = Hud.Info)) { append("1") }
+                    withStyle(SpanStyle(color = Hud.Danger)) { append("MP") }
+                    withStyle(SpanStyle(color = Hud.TextPrimary)) { append(" VISION") }
+                },
+                style = Hud.Title,
+                maxLines = 1,
+            )
+        }
         Box(
             modifier = Modifier
                 .size(Hud.ControlHeight)
@@ -421,7 +442,7 @@ private fun PanelMasthead(onClose: () -> Unit) {
                 ) { onClose() },
             contentAlignment = Alignment.Center,
         ) {
-            Text("X", style = Hud.Readout, color = Hud.Danger)
+            Text("X", style = Hud.Control, color = Hud.Danger)
         }
     }
 }
