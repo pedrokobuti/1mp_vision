@@ -22,18 +22,6 @@ class StippleFrameResult(val cols: Int, val rows: Int) {
     val offsetXFraction = FloatArray(cols * rows)
     val offsetYFraction = FloatArray(cols * rows)
     val colors = IntArray(cols * rows)
-
-    /**
-     * How merged each dot is with the neighbor to its east / to its south,
-     * 0 (apart) to 1 (fully joined). Eased over
-     * [StipplePipeline.MERGE_LERP_FRAMES] frames rather than switched on the
-     * moment two dots come within range, so a neck grows and thins instead of
-     * popping. Only these two directions: diagonal neighbors sit ~1.41 cells
-     * apart, which at any sane density is further than dots can reach.
-     */
-    val mergeEast = FloatArray(cols * rows)
-    val mergeSouth = FloatArray(cols * rows)
-
     /** Mean post-color-adjust luminance across the frame (0..1), same role as
      * [AsciiFrameResult.avgLuminance] — drives the automatic Invert background. */
     var avgLuminance: Float = 0f
@@ -95,24 +83,6 @@ object StipplePipeline {
      * continuous across the wrap. */
     private const val FRAME_WRAP = 60_000
 
-    /**
-     * How close two dots' edges must come, in screen pixels, before they start
-     * to merge. Small on purpose: this is a kiss between neighbors, not a
-     * field that fuses the whole picture into a blob.
-     */
-    const val MERGE_REACH_PX = 3f
-
-    /** Frames a neck takes to grow in or thin out, matching the drift's easing
-     * so nothing in the effect snaps. */
-    const val MERGE_LERP_FRAMES = 5
-
-    /**
-     * Neck thickness at full merge, as a fraction of the smaller dot's
-     * diameter. Below 1 so the dots still read as dots — the neck joins them,
-     * it doesn't swallow them.
-     */
-    const val MERGE_NECK_FACTOR = 0.9f
-
     fun computeGeometry(settings: AsciiSettings, sourceWidth: Int, sourceHeight: Int, viewportWidthPx: Float): StippleGeometry {
         val cols = settings.stippleDensity.coerceIn(10, MAX_COLS)
         val cellSize = (viewportWidthPx / cols).coerceAtLeast(0.5f)
@@ -131,11 +101,6 @@ object StipplePipeline {
         state: PipelineState,
         dtSeconds: Float,
         applyTemporalSmoothing: Boolean,
-        // The live view's cell size in px. Needed only to measure merging,
-        // which is specified in screen pixels while everything else here is in
-        // cell fractions. Exports scale the whole field, so necks scale with
-        // it and the look is preserved rather than pixel-identical.
-        cellSizePx: Float,
     ): StippleFrameResult {
         state.ensureSize(cols, rows)
         val n = cols * rows
@@ -187,8 +152,6 @@ object StipplePipeline {
             result.offsetYFraction[i] = state.stippleOffY[i]
             result.colors[i] = stippleCellColor(settings, r[i], g[i], b[i], v)
         }
-
-        advanceMerging(result, cols, rows, state, cellSizePx)
 
         return result
     }
@@ -267,76 +230,6 @@ object StipplePipeline {
                 val t = (step + 1f) / LERP_FRAMES
                 state.stippleOffX[i] = state.stippleStartX[i] + (state.stippleTargetX[i] - state.stippleStartX[i]) * t
                 state.stippleOffY[i] = state.stippleStartY[i] + (state.stippleTargetY[i] - state.stippleStartY[i]) * t
-            }
-        }
-    }
-
-    /**
-     * Eases every neighbor pair's merge strength toward whether those two dots
-     * are actually within reach of each other this frame, and writes the
-     * result onto [result].
-     *
-     * "Within reach" is measured edge to edge, not center to center: two fat
-     * dots touch at a center distance two thin ones would be strangers at, and
-     * it's the gap between their rims that decides whether ink would bridge
-     * them. A pair already overlapping sits at full strength.
-     */
-    private fun advanceMerging(
-        result: StippleFrameResult,
-        cols: Int,
-        rows: Int,
-        state: PipelineState,
-        cellSizePx: Float,
-    ) {
-        val stepPerFrame = 1f / MERGE_LERP_FRAMES
-        val reach = if (cellSizePx > 0f) MERGE_REACH_PX / cellSizePx else 0f // in cell units
-
-        fun centerX(x: Int, i: Int) = x + 0.5f + result.offsetXFraction[i]
-        fun centerY(y: Int, i: Int) = y + 0.5f + result.offsetYFraction[i]
-
-        fun target(i: Int, j: Int, dx: Float, dy: Float): Float {
-            if (!result.visible[i] || !result.visible[j]) return 0f
-            if (reach <= 0f) return 0f
-            val gap = hypot(dx, dy) - (result.radiusFraction[i] + result.radiusFraction[j])
-            return when {
-                gap <= 0f -> 1f
-                gap >= reach -> 0f
-                else -> 1f - gap / reach
-            }
-        }
-
-        fun ease(current: Float, goal: Float): Float {
-            val delta = goal - current
-            return when {
-                delta > stepPerFrame -> current + stepPerFrame
-                delta < -stepPerFrame -> current - stepPerFrame
-                else -> goal
-            }
-        }
-
-        for (y in 0 until rows) {
-            for (x in 0 until cols) {
-                val i = y * cols + x
-                val cx = centerX(x, i); val cy = centerY(y, i)
-
-                if (x + 1 < cols) {
-                    val j = i + 1
-                    val t = target(i, j, centerX(x + 1, j) - cx, centerY(y, j) - cy)
-                    state.stippleMergeEast[i] = ease(state.stippleMergeEast[i], t)
-                } else {
-                    state.stippleMergeEast[i] = 0f
-                }
-
-                if (y + 1 < rows) {
-                    val j = i + cols
-                    val t = target(i, j, centerX(x, j) - cx, centerY(y + 1, j) - cy)
-                    state.stippleMergeSouth[i] = ease(state.stippleMergeSouth[i], t)
-                } else {
-                    state.stippleMergeSouth[i] = 0f
-                }
-
-                result.mergeEast[i] = state.stippleMergeEast[i]
-                result.mergeSouth[i] = state.stippleMergeSouth[i]
             }
         }
     }

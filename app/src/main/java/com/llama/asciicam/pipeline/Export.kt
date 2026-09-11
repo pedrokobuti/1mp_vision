@@ -122,89 +122,22 @@ object Export {
         val save = canvas.save()
         canvas.translate(offsetX, offsetY)
         canvas.scale(scale, scale)
-        drawStippleField(canvas, frame, cellSize, paint)
-        canvas.restoreToCount(save)
-    }
 
-    /**
-     * The Digital Stippling field itself, in cell-space coordinates — shared
-     * verbatim by the live viewfinder, PNG export and the video recorder, so
-     * all three are the same picture rather than three drawing routines that
-     * have to be kept in step.
-     *
-     * Two passes. First the necks: where [StippleFrameResult.mergeEast] /
-     * [StippleFrameResult.mergeSouth] say two neighbors have come within
-     * reach, a round-capped stroke between their centers fuses them. Then the
-     * dots on top. Drawing necks underneath means a partly-grown one reads as
-     * ink welling up between two dots rather than a bar laid across them.
-     *
-     * This approximates metaballs rather than evaluating a scalar field:
-     * a true implementation samples the field per *pixel*, which at this grid
-     * size is millions of evaluations a frame — far past what this CPU-only
-     * pipeline can afford live. At the few-pixel reach dots merge over, a
-     * capsule between centers is very close to the real isosurface anyway.
-     */
-    internal fun drawStippleField(
-        canvas: Canvas,
-        frame: StippleFrameResult,
-        cellSize: Float,
-        paint: Paint,
-    ) {
-        val cols = frame.cols
-        val rows = frame.rows
-
-        fun centerX(x: Int, i: Int) = (x + 0.5f + frame.offsetXFraction[i]) * cellSize
-        fun centerY(y: Int, i: Int) = (y + 0.5f + frame.offsetYFraction[i]) * cellSize
-
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
+        val cols = geometry.cols
+        val rows = geometry.rows
         for (y in 0 until rows) {
             for (x in 0 until cols) {
-                val i = y * cols + x
-                if (!frame.visible[i]) continue
-                val r1 = frame.radiusFraction[i] * cellSize
-                val cx = centerX(x, i)
-                val cy = centerY(y, i)
-
-                val east = frame.mergeEast[i]
-                if (east > 0f && x + 1 < cols) {
-                    val j = i + 1
-                    if (frame.visible[j]) {
-                        val w = 2f * east * minOf(r1, frame.radiusFraction[j] * cellSize) * StipplePipeline.MERGE_NECK_FACTOR
-                        if (w >= 0.5f) {
-                            paint.color = frame.colors[i]
-                            paint.strokeWidth = w
-                            canvas.drawLine(cx, cy, centerX(x + 1, j), centerY(y, j), paint)
-                        }
-                    }
-                }
-
-                val south = frame.mergeSouth[i]
-                if (south > 0f && y + 1 < rows) {
-                    val j = i + cols
-                    if (frame.visible[j]) {
-                        val w = 2f * south * minOf(r1, frame.radiusFraction[j] * cellSize) * StipplePipeline.MERGE_NECK_FACTOR
-                        if (w >= 0.5f) {
-                            paint.color = frame.colors[i]
-                            paint.strokeWidth = w
-                            canvas.drawLine(cx, cy, centerX(x, j), centerY(y + 1, j), paint)
-                        }
-                    }
-                }
-            }
-        }
-
-        paint.style = Paint.Style.FILL
-        for (y in 0 until rows) {
-            for (x in 0 until cols) {
-                val i = y * cols + x
-                if (!frame.visible[i]) continue
-                val radius = frame.radiusFraction[i] * cellSize
+                val idx = y * cols + x
+                if (!frame.visible[idx]) continue
+                val radius = frame.radiusFraction[idx] * cellSize
                 if (radius <= 0f) continue
-                paint.color = frame.colors[i]
-                canvas.drawCircle(centerX(x, i), centerY(y, i), radius, paint)
+                val cx = (x + 0.5f + frame.offsetXFraction[idx]) * cellSize
+                val cy = (y + 0.5f + frame.offsetYFraction[idx]) * cellSize
+                paint.color = frame.colors[idx]
+                canvas.drawCircle(cx, cy, radius, paint)
             }
         }
+        canvas.restoreToCount(save)
     }
 
     /** Renders a Digital Stippling frame into a standalone bitmap at [outWidth]x[outHeight] pixels. */

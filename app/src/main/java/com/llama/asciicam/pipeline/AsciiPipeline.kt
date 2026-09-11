@@ -79,9 +79,6 @@ class PipelineState {
     var stippleStartX = FloatArray(0); var stippleStartY = FloatArray(0)
     var stippleTargetX = FloatArray(0); var stippleTargetY = FloatArray(0)
     var stippleFrame = 0
-    // Per-pair merge strength, carried frame to frame so a neck between two
-    // dots eases in and out instead of popping (see StipplePipeline).
-    var stippleMergeEast = FloatArray(0); var stippleMergeSouth = FloatArray(0)
 
     fun ensureSize(cols: Int, rows: Int) {
         if (cols == this.cols && rows == this.rows) return
@@ -102,7 +99,6 @@ class PipelineState {
         stippleOffX = FloatArray(n); stippleOffY = FloatArray(n)
         stippleStartX = FloatArray(n); stippleStartY = FloatArray(n)
         stippleTargetX = FloatArray(n); stippleTargetY = FloatArray(n)
-        stippleMergeEast = FloatArray(n); stippleMergeSouth = FloatArray(n)
         stippleFrame = 0
     }
 
@@ -114,7 +110,6 @@ class PipelineState {
         stippleOffX.fill(0f); stippleOffY.fill(0f)
         stippleStartX.fill(0f); stippleStartY.fill(0f)
         stippleTargetX.fill(0f); stippleTargetY.fill(0f)
-        stippleMergeEast.fill(0f); stippleMergeSouth.fill(0f)
         stippleFrame = 0
     }
 }

@@ -120,7 +120,21 @@ fun StippleCanvas(
 
             native.withClip(0f, 0f, size.width, size.height) {
                 translate(offsetX, offsetY)
-                Export.drawStippleField(this, frame, cellSize, paint)
+
+                val cols = geometry.cols
+                val rows = geometry.rows
+                for (y in 0 until rows) {
+                    for (x in 0 until cols) {
+                        val idx = y * cols + x
+                        if (!frame.visible[idx]) continue
+                        val radius = frame.radiusFraction[idx] * cellSize
+                        if (radius <= 0f) continue
+                        val cx = (x + 0.5f + frame.offsetXFraction[idx]) * cellSize
+                        val cy = (y + 0.5f + frame.offsetYFraction[idx]) * cellSize
+                        paint.color = frame.colors[idx]
+                        drawCircle(cx, cy, radius, paint)
+                    }
+                }
             }
         }
     }
