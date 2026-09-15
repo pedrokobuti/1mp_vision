@@ -19,9 +19,19 @@ import java.util.Locale
  */
 object Export {
 
-    private fun timestampName(ext: String): String {
+    /** The album name every export lands in, under Pictures/, Movies/ and
+     * Documents/. Users see this in their gallery, so it's the app's name
+     * rather than anything internal — declared once here and shared with
+     * [VideoRecorder] so the three locations can't drift apart. */
+    const val ALBUM = "1mp vision"
+
+    /** Filename prefix for exports. No space: a filename has to survive being
+     * typed, shared and sorted, where the album name only has to be read. */
+    private const val FILE_PREFIX = "1mpvision"
+
+    internal fun timestampName(ext: String): String {
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        return "asciicam_$ts.$ext"
+        return "${FILE_PREFIX}_$ts.$ext"
     }
 
     /**
@@ -155,7 +165,7 @@ object Export {
         return bmp
     }
 
-    /** Saves [bitmap] as a PNG into MediaStore Pictures/AsciiCam. Returns true on success. */
+    /** Saves [bitmap] as a PNG into MediaStore Pictures/[ALBUM]. Returns true on success. */
     fun savePng(context: Context, bitmap: Bitmap): Boolean {
         val name = timestampName("png")
         val resolver = context.contentResolver
@@ -163,7 +173,7 @@ object Export {
             put(MediaStore.Images.Media.DISPLAY_NAME, name)
             put(MediaStore.Images.Media.MIME_TYPE, "image/png")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/AsciiCam")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/$ALBUM")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
@@ -183,7 +193,7 @@ object Export {
         }
     }
 
-    /** Writes the raw row-major character grid as plain text into MediaStore Documents/AsciiCam. */
+    /** Writes the raw row-major character grid as plain text into MediaStore Documents/[ALBUM]. */
     fun saveTxt(context: Context, frame: AsciiFrameResult): Boolean {
         val sb = StringBuilder(frame.cols * frame.rows + frame.rows)
         for (y in 0 until frame.rows) {
@@ -199,7 +209,7 @@ object Export {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/AsciiCam")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "Documents/$ALBUM")
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
         }

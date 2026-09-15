@@ -71,6 +71,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.llama.asciicam.pipeline.AsciiCanvas
 import com.llama.asciicam.pipeline.AsciiPipeline
+import com.llama.asciicam.pipeline.Export
 import com.llama.asciicam.pipeline.MediaSource
 import com.llama.asciicam.pipeline.RenderMode
 import com.llama.asciicam.pipeline.StippleCanvas
@@ -299,21 +300,22 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                             viewModel.stopRecording { ok, fps ->
                                 Toast.makeText(
                                     context,
-                                    if (ok) "Saved to Movies/AsciiCam · %.1f fps".format(fps) else "Recording failed",
+                                    if (ok) "Saved to Movies/${Export.ALBUM} · %.1f fps".format(fps) else "Recording failed",
                                     Toast.LENGTH_SHORT,
                                 ).show()
                             }
                         } else {
-                            viewModel.startRecording(context) { ok, diagnostic ->
-                                // Always shown, not just on failure: `diagnostic`
-                                // carries the build marker, the encoder's real
-                                // output size and whether the font loaded — the
-                                // on-device evidence for which build is running.
-                                Toast.makeText(
-                                    context,
-                                    if (ok) "REC $diagnostic" else "Couldn't start recording · $diagnostic",
-                                    Toast.LENGTH_LONG,
-                                ).show()
+                            viewModel.startRecording(context) { ok ->
+                                // Only on failure: a successful start is
+                                // already announced by the REC badge, and a
+                                // toast saying so would just be in the way.
+                                if (!ok) {
+                                    Toast.makeText(
+                                        context,
+                                        "Couldn't start recording",
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                }
                             }
                         }
                     }
@@ -321,7 +323,7 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                     // Secondary capture action (plain-text export).
                     ChromeIconButton(icon = Icons.Default.Description, contentDescription = "Save as text") {
                         viewModel.exportTxt(context) { ok ->
-                            Toast.makeText(context, if (ok) "Saved TXT to Documents/AsciiCam" else "Export failed", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (ok) "Saved TXT to Documents/${Export.ALBUM}" else "Export failed", Toast.LENGTH_SHORT).show()
                         }
                     }
 
@@ -331,7 +333,7 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                             shutterFlash.animateTo(0f, animationSpec = androidx.compose.animation.core.tween(220))
                         }
                         viewModel.exportPng(context) { ok ->
-                            Toast.makeText(context, if (ok) "Saved PNG to Pictures/AsciiCam" else "Export failed", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (ok) "Saved PNG to Pictures/${Export.ALBUM}" else "Export failed", Toast.LENGTH_SHORT).show()
                         }
                     }
 
@@ -405,12 +407,12 @@ fun MainScreen(viewModel: AsciiViewModel = viewModel()) {
                         },
                         onExportPng = {
                             viewModel.exportPng(context) { ok ->
-                                Toast.makeText(context, if (ok) "Saved PNG to Pictures/AsciiCam" else "Export failed", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, if (ok) "Saved PNG to Pictures/${Export.ALBUM}" else "Export failed", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onExportTxt = {
                             viewModel.exportTxt(context) { ok ->
-                                Toast.makeText(context, if (ok) "Saved TXT to Documents/AsciiCam" else "Export failed", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, if (ok) "Saved TXT to Documents/${Export.ALBUM}" else "Export failed", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onClose = { showSettings = false },

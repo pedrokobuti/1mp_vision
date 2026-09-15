@@ -474,12 +474,12 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
 
     private var videoRecorder: VideoRecorder? = null
 
-    /** Starts recording the live ASCII output to Movies/AsciiCam as an MP4.
+    /** Starts recording the live output to Movies/[Export.ALBUM] as an MP4.
      * A no-op if already recording. [onStarted] reports whether setup
-     * (encoder/MediaStore) actually succeeded, plus a short human-readable
-     * diagnostic string for the caller to surface (see [RECORDING_BUILD_MARKER]). */
-    fun startRecording(context: android.content.Context, onStarted: (Boolean, String) -> Unit) {
-        if (isRecording || videoRecorder != null) { onStarted(false, "already recording"); return }
+     * (encoder/MediaStore) actually succeeded; details go to logcat rather
+     * than to the user, who only needs to know it started. */
+    fun startRecording(context: android.content.Context, onStarted: (Boolean) -> Unit) {
+        if (isRecording || videoRecorder != null) { onStarted(false); return }
         // The *same shared cached* Typeface instance the live viewfinder and
         // PNG export draw with — not a second, independently-loaded copy.
         //
@@ -494,8 +494,6 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
         // and safe to draw with from multiple threads (Paint isn't, and each
         // path already builds its own).
         val typeface = GlyphMetrics.typefaceFor(context, settings.font)
-        val usingFallbackFont = settings.font == com.llama.asciicam.pipeline.FontChoice.MODERN_DOS &&
-            typeface === android.graphics.Typeface.MONOSPACE
         viewModelScope.launch(Dispatchers.Default) {
             // Use the live geometry's actual native content size (cols*cellW x
             // rows*rowPitch), not an independently-derived viewport estimate —
@@ -562,26 +560,16 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
             // APK. The font flag reports whether the Modern DOS typeface
             // actually loaded or silently fell back to MONOSPACE.
             // "tf" pairs the recorder's real draw-time typeface identity with
-            // the live view's. They must match now that both come from the one
-            // shared cached instance; if a recording still comes out in the
-            // wrong font while these agree, the typeface is finally ruled out
-            // and the fault is downstream of drawing.
-            val liveTypefaceIdentity = System.identityHashCode(typeface)
-            val tfNote = if (recorder.paintTypefaceIdentity == liveTypefaceIdentity) {
-                "tf=match"
-            } else {
-                "tf=MISMATCH(${recorder.paintTypefaceIdentity}≠$liveTypefaceIdentity)"
-            }
-            val diagnostic = "$RECORDING_BUILD_MARKER · ${recorder.outWidth}x${recorder.outHeight} " +
-                "(${recorder.sizeNote}) · " + (if (usingFallbackFont) "FONT=FALLBACK" else "font ok") +
-                " · $tfNote"
-            android.util.Log.i("AsciiViewModel", "startRecording: ok=$ok $diagnostic")
+            android.util.Log.i(
+                "AsciiViewModel",
+                "startRecording: ok=$ok ${recorder.outWidth}x${recorder.outHeight} (${recorder.sizeNote})",
+            )
             withContext(Dispatchers.Main) {
                 if (ok) {
                     videoRecorder = recorder
                     isRecording = true
                 }
-                onStarted(ok, diagnostic)
+                onStarted(ok)
             }
         }
     }
@@ -613,15 +601,6 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        /**
-         * Bumped on every push while the recording bug is being chased. Shown
-         * in the toast when a recording starts, purely so it's unambiguous
-         * on-device which build is actually installed — several rounds of
-         * "nothing changed at all" are indistinguishable from a stale APK
-         * otherwise, and that ambiguity has cost more than the fixes have.
-         */
-        const val RECORDING_BUILD_MARKER = "build-13"
-
         /** Edits closer together than this fold into one undo entry — see
          * [updateSettings]. Long enough to swallow a slider drag's stream of
          * updates, short enough that two deliberate edits stay separate. */
