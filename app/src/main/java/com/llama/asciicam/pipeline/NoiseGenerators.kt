@@ -139,7 +139,10 @@ object NoiseGenerators {
 
     data class Worley(val f1: Float, val f2: Float, val cellId: Float)
 
-    fun worley(x: Float, y: Float): Worley {
+    /** [jitter] scales how far each cell's point strays from its slot centre:
+     * 0 pins every point to a regular lattice, 1 scatters it anywhere in its
+     * cell (the classic Worley arrangement, and the default). */
+    fun worley(x: Float, y: Float, jitter: Float = 1f): Worley {
         val cx = floor(x).toInt()
         val cy = floor(y).toInt()
         var f1 = 1e9f
@@ -148,8 +151,8 @@ object NoiseGenerators {
             for (dx in -1..1) {
                 val gx = cx + dx
                 val gy = cy + dy
-                val px = gx + noiseHash(gx, gy, 11)
-                val py = gy + noiseHash(gx, gy, 22)
+                val px = gx + 0.5f + (noiseHash(gx, gy, 11) - 0.5f) * jitter
+                val py = gy + 0.5f + (noiseHash(gx, gy, 22) - 0.5f) * jitter
                 val ddx = x - px
                 val ddy = y - py
                 val d = ddx * ddx + ddy * ddy
@@ -165,14 +168,14 @@ object NoiseGenerators {
         return v / 4f * 0.5f + 0.5f
     }
 
-    fun turbulence(x: Float, y: Float): Float {
+    fun turbulence(x: Float, y: Float, octaves: Int = 4, gain: Float = 0.5f, lacunarity: Float = 2f): Float {
         var sum = 0f
         var amp = 0.5f
         var freq = 1f
-        for (i in 0 until 4) {
+        for (i in 0 until octaves) {
             sum += (perlin2D(x * freq, y * freq) - 0.5f) * amp
-            amp *= 0.5f
-            freq *= 2f
+            amp *= gain
+            freq *= lacunarity
         }
         return min(1f, max(0f, sum + 0.5f))
     }
@@ -189,45 +192,48 @@ object NoiseGenerators {
 
     /** Fractal Brownian motion: plain summed octaves. Soft, cloudy, the
      * general-purpose one. */
-    fun fbm(x: Float, y: Float, octaves: Int = 5): Float {
+    fun fbm(x: Float, y: Float, octaves: Int = 5, gain: Float = 0.5f, lacunarity: Float = 2f): Float {
         var sum = 0f; var amp = 0.5f; var freq = 1f; var norm = 0f
         for (i in 0 until octaves) {
             sum += perlinSigned(x * freq, y * freq) * amp
-            norm += amp; amp *= 0.5f; freq *= 2f
+            norm += amp; amp *= gain; freq *= lacunarity
         }
+        if (norm <= 0f) return 0.5f
         return (sum / (norm * 2f) + 0.5f).coerceIn(0f, 1f)
     }
 
     /** Ridged multifractal: each octave inverted and squared, so the zero
      * crossings become sharp creases. Reads as mountain ridges or lightning. */
-    fun ridged(x: Float, y: Float, octaves: Int = 5): Float {
+    fun ridged(x: Float, y: Float, octaves: Int = 5, gain: Float = 0.5f, lacunarity: Float = 2f): Float {
         var sum = 0f; var amp = 0.5f; var freq = 1f; var norm = 0f
         for (i in 0 until octaves) {
             val n = 1f - abs(perlinSigned(x * freq, y * freq) * 2f)
             sum += n * n * amp
-            norm += amp; amp *= 0.5f; freq *= 2f
+            norm += amp; amp *= gain; freq *= lacunarity
         }
+        if (norm <= 0f) return 0f
         return (sum / norm).coerceIn(0f, 1f)
     }
 
     /** Billow: absolute value per octave, so troughs fold up into bulges.
      * Puffy, cumulus-like. */
-    fun billow(x: Float, y: Float, octaves: Int = 5): Float {
+    fun billow(x: Float, y: Float, octaves: Int = 5, gain: Float = 0.5f, lacunarity: Float = 2f): Float {
         var sum = 0f; var amp = 0.5f; var freq = 1f; var norm = 0f
         for (i in 0 until octaves) {
             sum += abs(perlinSigned(x * freq, y * freq) * 2f) * amp
-            norm += amp; amp *= 0.5f; freq *= 2f
+            norm += amp; amp *= gain; freq *= lacunarity
         }
+        if (norm <= 0f) return 0f
         return (sum / norm).coerceIn(0f, 1f)
     }
 
     /** Noise sampled through coordinates that are themselves displaced by
      * noise — the field drags itself sideways, giving the eroded, river-like
      * swirls a single pass can't produce. */
-    fun domainWarp(x: Float, y: Float): Float {
-        val wx = fbm(x, y, 3) - 0.5f
-        val wy = fbm(x + 5.2f, y + 1.3f, 3) - 0.5f
-        return fbm(x + wx * 4f, y + wy * 4f, 4)
+    fun domainWarp(x: Float, y: Float, octaves: Int = 4, gain: Float = 0.5f, lacunarity: Float = 2f, warp: Float = 4f): Float {
+        val wx = fbm(x, y, 3, gain, lacunarity) - 0.5f
+        val wy = fbm(x + 5.2f, y + 1.3f, 3, gain, lacunarity) - 0.5f
+        return fbm(x + wx * warp, y + wy * warp, octaves, gain, lacunarity)
     }
 
     /** Smoothed lattice of hashed values. Perlin's blockier ancestor — coarser
@@ -241,16 +247,16 @@ object NoiseGenerators {
     }
 
     /** Veins: turbulence folded through a sine, the classic marble recipe. */
-    fun marble(x: Float, y: Float): Float {
+    fun marble(x: Float, y: Float, veins: Float = 1f): Float {
         val t = turbulence(x, y) - 0.5f
-        return (sin((x + t * 6f) * 1.5f) * 0.5f + 0.5f).coerceIn(0f, 1f)
+        return (sin((x + t * 6f) * 1.5f * veins) * 0.5f + 0.5f).coerceIn(0f, 1f)
     }
 
     /** Growth rings: distance from origin, wobbled by turbulence, wrapped. */
-    fun wood(x: Float, y: Float): Float {
+    fun wood(x: Float, y: Float, rings: Float = 1f): Float {
         val d = sqrt(x * x + y * y)
-        val rings = (d + (turbulence(x, y) - 0.5f) * 2f) * 2f
-        return rings - floor(rings)
+        val r = (d + (turbulence(x, y) - 0.5f) * 2f) * 2f * rings
+        return r - floor(r)
     }
 
     /** Magnitude of the field's own gradient, which traces the flow lines a
@@ -276,12 +282,13 @@ object NoiseGenerators {
 
     /** Octaves with 1/f falloff — heavier at the coarse end, the opposite
      * balance to [blueNoise]. */
-    fun pinkNoise(x: Float, y: Float): Float {
+    fun pinkNoise(x: Float, y: Float, octaves: Int = 5, gain: Float = 0.5f, lacunarity: Float = 2f): Float {
         var sum = 0f; var amp = 1f; var freq = 1f; var norm = 0f
-        for (i in 0 until 5) {
+        for (i in 0 until octaves) {
             sum += valueNoise(x * freq, y * freq) * amp
-            norm += amp; amp *= 0.5f; freq *= 2f
+            norm += amp; amp *= gain; freq *= lacunarity
         }
+        if (norm <= 0f) return 0.5f
         return (sum / norm).coerceIn(0f, 1f)
     }
 
@@ -301,6 +308,20 @@ object NoiseGenerators {
      * direction into these coordinates, which is why the field only ever
      * travelled one way no matter the setting.
      */
+    /**
+     * The per-type knobs, bundled rather than passed as eight more arguments.
+     * Built once per frame in [GridSources.sampleNoise] and read by whichever
+     * types care — each field is ignored by the types it means nothing to.
+     */
+    data class NoiseParams(
+        val octaves: Int = 5,
+        val gain: Float = 0.5f,
+        val lacunarity: Float = 2f,
+        val warp: Float = 4f,
+        val cellJitter: Float = 1f,
+        val veins: Float = 1f,
+    )
+
     fun generateNoiseValue(
         type: NoiseType,
         cellX: Int,
@@ -311,6 +332,7 @@ object NoiseGenerators {
         scale: Float,
         driftX: Float,
         driftY: Float,
+        params: NoiseParams = NoiseParams(),
     ): Float {
         val nx = physX / scale + driftX
         val ny = physY / scale + driftY
@@ -330,29 +352,29 @@ object NoiseGenerators {
             NoiseType.PERLIN -> perlin2D(nx, ny)
             NoiseType.SIMPLEX -> simplex2D(nx, ny)
             NoiseType.VALUE -> valueNoise(nx, ny)
-            NoiseType.PINK -> pinkNoise(nx, ny)
+            NoiseType.PINK -> pinkNoise(nx, ny, params.octaves, params.gain, params.lacunarity)
             NoiseType.SPARSE -> sparseConvolution(nx, ny)
             NoiseType.ALLIGATOR -> {
-                val w = worley(nx, ny)
+                val w = worley(nx, ny, params.cellJitter)
                 val edge = min(1f, (w.f2 - w.f1) * 3f)
                 val mottle = w.cellId * 0.6f + 0.2f
                 edge * 0.7f + mottle * 0.3f
             }
-            NoiseType.CELLULAR -> min(1f, worley(nx, ny).f1)
-            NoiseType.VORONOI -> worley(nx, ny).cellId
+            NoiseType.CELLULAR -> min(1f, worley(nx, ny, params.cellJitter).f1)
+            NoiseType.VORONOI -> worley(nx, ny, params.cellJitter).cellId
             NoiseType.CRACKLE -> {
-                val w = worley(nx, ny)
+                val w = worley(nx, ny, params.cellJitter)
                 // Only the seam between cells survives; everything else is flat.
                 (1f - min(1f, (w.f2 - w.f1) * 6f)).coerceIn(0f, 1f)
             }
             NoiseType.PLASMA -> plasma(nx, ny, t)
-            NoiseType.TURBULENCE -> turbulence(nx, ny)
-            NoiseType.FBM -> fbm(nx, ny)
-            NoiseType.RIDGED -> ridged(nx, ny)
-            NoiseType.BILLOW -> billow(nx, ny)
-            NoiseType.DOMAIN_WARP -> domainWarp(nx, ny)
-            NoiseType.MARBLE -> marble(nx, ny)
-            NoiseType.WOOD -> wood(nx, ny)
+            NoiseType.TURBULENCE -> turbulence(nx, ny, params.octaves, params.gain, params.lacunarity)
+            NoiseType.FBM -> fbm(nx, ny, params.octaves, params.gain, params.lacunarity)
+            NoiseType.RIDGED -> ridged(nx, ny, params.octaves, params.gain, params.lacunarity)
+            NoiseType.BILLOW -> billow(nx, ny, params.octaves, params.gain, params.lacunarity)
+            NoiseType.DOMAIN_WARP -> domainWarp(nx, ny, params.octaves, params.gain, params.lacunarity, params.warp)
+            NoiseType.MARBLE -> marble(nx, ny, params.veins)
+            NoiseType.WOOD -> wood(nx, ny, params.veins)
             NoiseType.CURL -> curl(nx, ny)
         }
     }

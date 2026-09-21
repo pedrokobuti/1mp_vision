@@ -45,8 +45,16 @@ enum class ColorMode { SOURCE, PALETTE, IMPOSTER, MONO }
 /** Top-level render mode: ASCII characters, or "Digital Stippling" dots. */
 enum class RenderMode { ASCII, STIPPLING }
 
-/** How edge-detected cells are colored, separately from [ColorMode]. */
-enum class EdgeColorMode { OFF, CUSTOM, IMPOSTER, PALETTE }
+/**
+ * How edge-detected cells are colored, separately from [ColorMode] — the same
+ * four choices, by the same names, so "Mono" means one picked color in both
+ * places rather than being called something else on each.
+ *
+ * There's no "off": setting this to match [ColorMode] is what makes outlines
+ * blend into the rest, and an extra mode meaning "same as the other setting"
+ * only invites the two to disagree.
+ */
+enum class EdgeColorMode { SOURCE, PALETTE, IMPOSTER, MONO }
 
 /** Where pixels for this frame come from. */
 enum class MediaSource { CAMERA, IMAGE, NOISE }
@@ -175,7 +183,9 @@ data class AsciiSettings(
     val edgeDetectEnabled: Boolean = true,
     val edgeThreshold: Int = 35, // 0..100
     val edgeStrength: Int = 100, // 0..200
-    val edgeColorMode: EdgeColorMode = EdgeColorMode.OFF,
+    // Defaults to SOURCE to match [colorMode]'s default, so outlines start out
+    // looking like everything else — what the old "off" mode did.
+    val edgeColorMode: EdgeColorMode = EdgeColorMode.SOURCE,
     val edgeColorArgb: Int = 0xFFFFFFFF.toInt(),
     val edgePaletteStops: List<PaletteStop> = listOf(PaletteStop("#000000"), PaletteStop("#5B8CFF"), PaletteStop("#FFFFFF")),
 
@@ -183,6 +193,25 @@ data class AsciiSettings(
     val distortionType: DistortionType = DistortionType.NONE,
     val distortionAmount: Int = 40, // 0..100
     val distortionSpeed: Int = 100, // -300..300
+
+    // Per-type distortion controls. Each one is shown only for the types it
+    // actually means something to (see SettingsPanel's distortionSection), so
+    // a warp exposes its own shape rather than everything sharing one Amount.
+    /** How much of the frame a centred effect covers, as a percent of its
+     * shorter side. Applies to everything that works outward from a point:
+     * ripple, twirl, pinch, the three lens shapes, kaleidoscope, vortex, polar. */
+    val distortionRadiusPercent: Int = 100, // 10..200
+    /** Where that centre sits, as a percent across and down the frame. */
+    val distortionCenterXPercent: Int = 50, // 0..100
+    val distortionCenterYPercent: Int = 50, // 0..100
+    /** Mirrored wedges for kaleidoscope. */
+    val distortionSides: Int = 6, // 3..16
+    /** Wavelength for the wave-shaped warps: sine, ripple, zigzag, wobble.
+     * Higher means more, tighter waves across the frame. */
+    val distortionFrequencyPercent: Int = 100, // 10..400
+    /** Chunk size for the blocky warps — glitch bands, mosaic tiles, and the
+     * grain of the noise and smear displacements. */
+    val distortionBlockPercent: Int = 30, // 1..100
 
     // Color adjustment
     val brightness: Int = 0, // -100..100
@@ -218,6 +247,26 @@ data class AsciiSettings(
      * 180 = left, 270 = down. Applied uniformly to every noise type. */
     val noiseAngleDegrees: Int = 0, // 0..359
     val noiseFrozen: Boolean = false,
+
+    // Per-type noise controls, shown only for the types they apply to.
+    /** Layers in the fractal stacks (Fractal, Turbulence, Ridged, Billow,
+     * Domain Warp, Pink). More layers means finer detail on top of the same
+     * broad shape — and more work per cell, which is why it's capped. */
+    val noiseOctaves: Int = 5, // 1..8
+    /** How much each successive fractal layer contributes, as a percent.
+     * Low values leave only the broad shape; high values make it grainy. */
+    val noiseRoughness: Int = 50, // 0..100 -> gain 0..1
+    /** How much finer each successive layer is than the last. 200 = each
+     * layer is twice the frequency, the usual choice. */
+    val noiseLacunarity: Int = 200, // 150..400 -> 1.5..4.0
+    /** How far Domain Warp drags its own coordinates before sampling. */
+    val noiseWarpPercent: Int = 100, // 0..300
+    /** How far cell centres wander from their grid slots, for the cell
+     * patterns (Cellular, Voronoi, Crackle, Alligator). At 0 they sit on a
+     * regular lattice; at 100 they're scattered. */
+    val noiseCellJitter: Int = 100, // 0..100
+    /** Ring and vein spacing for Marble and Wood. */
+    val noiseVeinPercent: Int = 100, // 10..400
 
     // ---- Digital Stippling (only used while renderMode == STIPPLING) ----
     // Dot grid density, analogous to `cols` above but its own control since

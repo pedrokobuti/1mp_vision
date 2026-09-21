@@ -16,6 +16,7 @@ import com.llama.asciicam.pipeline.GlyphMetrics
 import com.llama.asciicam.pipeline.GridGeometry
 import com.llama.asciicam.pipeline.GridSources
 import com.llama.asciicam.pipeline.MediaSource
+import com.llama.asciicam.pipeline.NoiseGenerators
 import com.llama.asciicam.pipeline.NoiseType
 import com.llama.asciicam.pipeline.PipelineState
 import com.llama.asciicam.pipeline.RecordableFrame
@@ -400,7 +401,18 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
                 val (gCols, gRows) = gridDimsFor(srcW, srcH)
                 val n = gCols * gRows
                 val rr = FloatArray(n); val gg = FloatArray(n); val bb = FloatArray(n)
-                GridSources.sampleNoise(s.noiseType, gCols, gRows, noiseClock, s.noiseScale, s.noiseAngleDegrees, rr, gg, bb)
+                GridSources.sampleNoise(
+                    s.noiseType, gCols, gRows, noiseClock, s.noiseScale, s.noiseAngleDegrees,
+                    NoiseGenerators.NoiseParams(
+                        octaves = s.noiseOctaves.coerceIn(1, 8),
+                        gain = s.noiseRoughness / 100f,
+                        lacunarity = s.noiseLacunarity / 100f,
+                        warp = s.noiseWarpPercent / 25f,
+                        cellJitter = s.noiseCellJitter / 100f,
+                        veins = s.noiseVeinPercent / 100f,
+                    ),
+                    rr, gg, bb,
+                )
 
                 processMutex.withLock {
                     processAndPublish(rr, gg, bb, gCols, gRows, srcW, srcH, temporal = true)

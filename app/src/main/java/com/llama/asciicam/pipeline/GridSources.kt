@@ -38,6 +38,7 @@ object GridSources {
         timeSeconds: Float,
         scale: Float,
         angleDegrees: Int,
+        params: NoiseGenerators.NoiseParams,
         outR: FloatArray,
         outG: FloatArray,
         outB: FloatArray,
@@ -63,7 +64,7 @@ object GridSources {
             for (x in 0 until cols) {
                 val idx = y * cols + x
                 val v = NoiseGenerators.generateNoiseValue(
-                    type, x, y, x * physScale, y * physScale, timeSeconds, scale, driftX, driftY,
+                    type, x, y, x * physScale, y * physScale, timeSeconds, scale, driftX, driftY, params,
                 ).coerceIn(0f, 1f)
                 outR[idx] = v; outG[idx] = v; outB[idx] = v
             }
