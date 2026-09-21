@@ -28,12 +28,9 @@ import android.view.Surface
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
- * Records the live ASCII output to an audio-less MP4. There's no camera/
+ * Records the live output to an audio-less MP4. There's no camera/
  * screen frame to just forward — the "video" is synthesized frame by frame.
  * Each frame is first rendered into a plain [Bitmap] via [Export.drawFrameInto]
  * — the exact same call PNG export makes, proven correct by dumping it
@@ -208,17 +205,6 @@ class VideoRecorder(
         p.style = Paint.Style.FILL
     }
 
-    /**
-     * Identity of the [Typeface] this recorder will actually draw every glyph
-     * with, read back off the constructed [Paint] rather than from the
-     * constructor argument — so it reports what will really be used, not what
-     * was intended. Compared against the live view's in the recording
-     * diagnostic: if a recording ever comes out in the wrong font again, this
-     * says immediately whether the wrong font was already selected here or
-     * whether something downstream of drawing is at fault.
-     */
-    val paintTypefaceIdentity: Int get() = System.identityHashCode(paint.typeface)
-
     // Reused across frames — one frame's worth of scratch memory, not
     // reallocated every ~40ms. Text is drawn into this (proven-correct),
     // native-sized Bitmap canvas; only its finished pixels ever reach the
@@ -337,7 +323,7 @@ class VideoRecorder(
         trackIndex = -1
         recording = true
 
-        thread = Thread(::runLoop, "AsciiCam-VideoRecorder").apply { start() }
+        thread = Thread(::runLoop, "1mpVision-VideoRecorder").apply { start() }
         return true
     }
 
@@ -645,14 +631,13 @@ class VideoRecorder(
     }
 
     private fun openMediaStoreTarget(): Pair<Uri, ParcelFileDescriptor>? {
-        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val name = "asciicam_$ts.mp4"
+        val name = Export.timestampName("mp4")
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, name)
             put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/AsciiCam")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/${Export.ALBUM}")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
         }

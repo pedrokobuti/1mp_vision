@@ -212,17 +212,18 @@ fun SettingsPanel(
                             HudRule()
                             HudCaption("Outline color")
                             HudSegmented(
-                                options = listOf("Off" to EdgeColorMode.OFF, "Custom" to EdgeColorMode.CUSTOM),
+                                options = listOf("Source" to EdgeColorMode.SOURCE, "Palette" to EdgeColorMode.PALETTE),
                                 selected = settings.edgeColorMode,
                                 onSelect = { v -> set { it.copy(edgeColorMode = v) } },
                             )
                             Spacer(Modifier.height(4.dp))
                             HudSegmented(
-                                options = listOf("1mposter" to EdgeColorMode.IMPOSTER, "Palette" to EdgeColorMode.PALETTE),
+                                options = listOf("1mposter" to EdgeColorMode.IMPOSTER, "Mono" to EdgeColorMode.MONO),
                                 selected = settings.edgeColorMode,
                                 onSelect = { v -> set { it.copy(edgeColorMode = v) } },
                             )
-                            if (settings.edgeColorMode == EdgeColorMode.CUSTOM) {
+                            if (settings.edgeColorMode == EdgeColorMode.MONO) {
+                                HudRule()
                                 ColorPickerRow(argb = settings.edgeColorArgb) { c -> set { it.copy(edgeColorArgb = c) } }
                             }
                             if (settings.edgeColorMode == EdgeColorMode.PALETTE) {
@@ -363,12 +364,36 @@ private fun LazyListScope.sourceSection(
                             label = "Noise type",
                             options = NoiseType.entries,
                             selected = settings.noiseType,
-                            display = { it.name.titleCase() },
+                            display = { it.displayName },
                             onSelect = { v -> set { it.copy(noiseType = v) } },
                         )
                         HudSlider("Scale", settings.noiseScale, 1f, 40f, valueLabel = { "%.1f".format(Locale.US, it) }) { v -> set { it.copy(noiseScale = v) } }
                         HudSlider("Speed", settings.noiseSpeed, 0f, 5f, valueLabel = { "%.2f".format(Locale.US, it) }) { v -> set { it.copy(noiseSpeed = v) } }
+                        HudSlider("Direction", settings.noiseAngleDegrees.toFloat(), 0f, 359f, valueLabel = { "${hudInt(it)}\u00B0" }) { v -> set { it.copy(noiseAngleDegrees = v.toInt()) } }
                         HudToggle("Freeze", settings.noiseFrozen) { v -> set { it.copy(noiseFrozen = v) } }
+
+                        // Per-type controls, shown only where they mean
+                        // something \u2014 a Perlin field has no octaves to stack
+                        // and a marble one has no cells to scatter.
+                        val nt = settings.noiseType
+                        if (nt in NOISE_WITH_OCTAVES) {
+                            HudRule()
+                            HudSlider("Layers", settings.noiseOctaves.toFloat(), 1f, 8f, valueLabel = { hudInt(it, digits = 1) }) { v -> set { it.copy(noiseOctaves = v.toInt()) } }
+                            HudSlider("Roughness", settings.noiseRoughness.toFloat(), 0f, 100f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(noiseRoughness = v.toInt()) } }
+                            HudSlider("Detail step", settings.noiseLacunarity.toFloat(), 150f, 400f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(noiseLacunarity = v.toInt()) } }
+                        }
+                        if (nt == NoiseType.DOMAIN_WARP) {
+                            HudSlider("Warp", settings.noiseWarpPercent.toFloat(), 0f, 300f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(noiseWarpPercent = v.toInt()) } }
+                        }
+                        if (nt in NOISE_WITH_CELLS) {
+                            HudRule()
+                            HudSlider("Cell jitter", settings.noiseCellJitter.toFloat(), 0f, 100f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(noiseCellJitter = v.toInt()) } }
+                        }
+                        if (nt in NOISE_WITH_VEINS) {
+                            HudRule()
+                            val label = if (nt == NoiseType.WOOD) "Rings" else "Veins"
+                            HudSlider(label, settings.noiseVeinPercent.toFloat(), 10f, 400f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(noiseVeinPercent = v.toInt()) } }
+                        }
                     }
                 }
                 trailing()
@@ -393,12 +418,33 @@ private fun LazyListScope.distortionSection(
                     label = "Type",
                     options = DistortionType.entries,
                     selected = settings.distortionType,
-                    display = { it.name.titleCase() },
+                    display = { it.displayName },
                     onSelect = { v -> set { it.copy(distortionType = v) } },
                 )
-                if (settings.distortionType != DistortionType.NONE) {
+                val d = settings.distortionType
+                if (d != DistortionType.NONE) {
                     HudSlider("Amount", settings.distortionAmount.toFloat(), 0f, 100f, valueLabel = { hudInt(it) }) { v -> set { it.copy(distortionAmount = v.toInt()) } }
                     HudSlider("Speed", settings.distortionSpeed.toFloat(), -300f, 300f, valueLabel = { hudInt(it) }) { v -> set { it.copy(distortionSpeed = v.toInt()) } }
+
+                    // Everything below is shown only for the warps it actually
+                    // shapes, so each type exposes its own controls instead of
+                    // every type sharing one Amount slider.
+                    if (d in DISTORTIONS_WITH_CENTER) {
+                        HudRule()
+                        HudSlider("Area", settings.distortionRadiusPercent.toFloat(), 10f, 200f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(distortionRadiusPercent = v.toInt()) } }
+                        HudSlider("Center X", settings.distortionCenterXPercent.toFloat(), 0f, 100f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(distortionCenterXPercent = v.toInt()) } }
+                        HudSlider("Center Y", settings.distortionCenterYPercent.toFloat(), 0f, 100f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(distortionCenterYPercent = v.toInt()) } }
+                    }
+                    if (d == DistortionType.KALEIDOSCOPE) {
+                        HudSlider("Sides", settings.distortionSides.toFloat(), 3f, 16f, valueLabel = { hudInt(it, digits = 2) }) { v -> set { it.copy(distortionSides = v.toInt()) } }
+                    }
+                    if (d in DISTORTIONS_WITH_FREQUENCY) {
+                        HudSlider("Frequency", settings.distortionFrequencyPercent.toFloat(), 10f, 400f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(distortionFrequencyPercent = v.toInt()) } }
+                    }
+                    if (d in DISTORTIONS_WITH_BLOCK) {
+                        val label = if (d == DistortionType.GLITCH) "Glitch size" else "Block size"
+                        HudSlider(label, settings.distortionBlockPercent.toFloat(), 1f, 100f, valueLabel = { "${hudInt(it)}%" }) { v -> set { it.copy(distortionBlockPercent = v.toInt()) } }
+                    }
                 }
             }
         }
@@ -528,6 +574,32 @@ private fun HudRule() {
 private fun String.titleCase(): String =
     lowercase(Locale.US).replaceFirstChar { it.uppercase(Locale.US) }
 
+// Which warps each per-type control belongs to. Kept as sets next to the UI
+// that reads them rather than as a property on the enum: this is a statement
+// about which sliders to show, not about what the warp is.
+private val DISTORTIONS_WITH_CENTER = setOf(
+    DistortionType.CIRCULAR, DistortionType.TWIRL, DistortionType.PINCH,
+    DistortionType.BARREL, DistortionType.PINCUSHION, DistortionType.FISHEYE,
+    DistortionType.KALEIDOSCOPE, DistortionType.VORTEX, DistortionType.POLAR,
+)
+private val DISTORTIONS_WITH_FREQUENCY = setOf(
+    DistortionType.SINE, DistortionType.CIRCULAR, DistortionType.ZIGZAG, DistortionType.WOBBLE,
+)
+private val DISTORTIONS_WITH_BLOCK = setOf(
+    DistortionType.GLITCH, DistortionType.MOSAIC, DistortionType.NOISE, DistortionType.SMEAR,
+)
+
+// Same idea for the noise sources: only the fractal stacks have octaves, only
+// the cell-based ones have a jitter, and only marble/wood have vein spacing.
+private val NOISE_WITH_OCTAVES = setOf(
+    NoiseType.FBM, NoiseType.TURBULENCE, NoiseType.RIDGED, NoiseType.BILLOW,
+    NoiseType.DOMAIN_WARP, NoiseType.PINK,
+)
+private val NOISE_WITH_CELLS = setOf(
+    NoiseType.CELLULAR, NoiseType.VORONOI, NoiseType.CRACKLE, NoiseType.ALLIGATOR,
+)
+private val NOISE_WITH_VEINS = setOf(NoiseType.MARBLE, NoiseType.WOOD)
+
 private val PRESET_COLORS = listOf(
     0xFFFFFFFF.toInt(), 0xFF000000.toInt(), 0xFFFF6E58.toInt(), 0xFF34C759.toInt(),
     0xFF5B8CFF.toInt(), 0xFFFFCC00.toInt(), 0xFFFF2D95.toInt(), 0xFF00E5FF.toInt(),
@@ -535,26 +607,16 @@ private val PRESET_COLORS = listOf(
 
 @Composable
 private fun ColorPickerRow(argb: Int, onChange: (Int) -> Unit) {
-    Column(Modifier.padding(top = 6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PRESET_COLORS.forEach { c ->
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .background(Color(c))
-                        .then(
-                            if (c == argb) Modifier.border(2.dp, Hud.Accent)
-                            else Modifier.border(Hud.Stroke, Hud.LineDim),
-                        )
-                        .clickable { onChange(c) },
-                )
-            }
-        }
-        var hex by remember(argb) { mutableStateOf(String.format(Locale.US, "#%06X", argb and 0xFFFFFF)) }
-        HudTextField("Hex", hex) { v ->
-            hex = v
-            onChange(AsciiPipeline.parseHexColor(v))
-        }
+    // One box, nothing else. The picker it opens already carries the hex field
+    // and a live preview, so repeating them out here was two ways to set the
+    // same value competing for the same strip of panel.
+    Row(
+        modifier = Modifier.padding(top = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HudColorSwatch(argb = argb, size = 44.dp, onChange = onChange)
+        Spacer(Modifier.width(12.dp))
+        HudCaption("Tap to pick")
     }
 }
 
@@ -567,12 +629,13 @@ private fun PaletteEditor(stops: List<PaletteStop>, onChange: (List<PaletteStop>
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Box(
-                    Modifier
-                        .size(20.dp)
-                        .background(Color(AsciiPipeline.parseHexColor(stop.hex)))
-                        .border(Hud.Stroke, Hud.Line),
-                )
+                HudColorSwatch(
+                    argb = AsciiPipeline.parseHexColor(stop.hex),
+                    size = 28.dp,
+                ) { picked ->
+                    val hex = String.format(Locale.US, "#%06X", picked and 0xFFFFFF)
+                    onChange(stops.toMutableList().also { it[index] = PaletteStop(hex) })
+                }
                 Spacer(Modifier.width(10.dp))
                 Box(Modifier.weight(1f)) {
                     HudTextField("Stop ${index + 1}", stop.hex) { v ->

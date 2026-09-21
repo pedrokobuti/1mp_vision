@@ -1,14 +1,32 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Release signing details live in keystore.properties, which is gitignored and
+// never committed — losing or leaking the key it points at is unrecoverable,
+// since Google Play will only accept updates signed with the same one. Absent
+// that file (any machine but yours, CI, a fresh clone) the release build simply
+// goes unsigned instead of failing, so `assembleDebug` and friends still work.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) load(keystorePropertiesFile.inputStream())
+}
+val hasReleaseKeystore = keystoreProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.llama.asciicam"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.llama.asciicam"
+        // PERMANENT once the first build is uploaded to Google Play: this is
+        // the app's identity in the store URL and can never be changed after.
+        // Deliberately unrelated to `namespace` above, which is only the
+        // internal package the generated R/BuildConfig classes land in and has
+        // no bearing on anything a user or the store ever sees.
+        applicationId = "com.imp_vision"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -16,8 +34,20 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

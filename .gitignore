@@ -9,3 +9,9 @@
 .cxx
 local.properties
 /app/build
+
+# Release signing — never commit. Leaking these means anyone can ship updates
+# as you; losing them means you can't ship updates at all.
+keystore.properties
+*.jks
+*.keystore

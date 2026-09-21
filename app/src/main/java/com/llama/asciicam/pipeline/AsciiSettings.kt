@@ -1,7 +1,40 @@
 package com.llama.asciicam.pipeline
 
-/** Distortion warp types, ported 1:1 from the web tool's `distortField()` switch. */
-enum class DistortionType { NONE, SINE, CIRCULAR, NOISE, TWIRL, PINCH, GLITCH }
+/**
+ * Ways of warping the sampling grid before anything is drawn from it.
+ *
+ * [displayName] rather than relying on the enum name: several of these are
+ * two words, and a menu reading "DOMAIN_WARP" or "Zig_zag" looks like a bug.
+ */
+enum class DistortionType(val displayName: String) {
+    NONE("None"),
+
+    // --- the original six, ported 1:1 from the web tool's distortField() ---
+    SINE("Sine"),
+    CIRCULAR("Ripple"),
+    NOISE("Noise"),
+    TWIRL("Twirl"),
+    PINCH("Pinch"),
+    GLITCH("Glitch"),
+
+    // --- lens shapes: the ways real optics bend a frame ---
+    BARREL("Barrel"),
+    PINCUSHION("Pincushion"),
+    FISHEYE("Fisheye"),
+
+    // --- geometric ---
+    SHEAR("Shear"),
+    ZIGZAG("Zigzag"),
+    MOSAIC("Mosaic"),
+    MIRROR("Mirror"),
+    KALEIDOSCOPE("Kaleidoscope"),
+
+    // --- rotational / flowing ---
+    VORTEX("Vortex"),
+    POLAR("Polar"),
+    SMEAR("Smear"),
+    WOBBLE("Wobble"),
+}
 
 /** Character-selection strategy: gradient ramp by luminance, or a literal word laid over the grid. */
 enum class CharSource { RAMP, WORD }
@@ -12,14 +45,57 @@ enum class ColorMode { SOURCE, PALETTE, IMPOSTER, MONO }
 /** Top-level render mode: ASCII characters, or "Digital Stippling" dots. */
 enum class RenderMode { ASCII, STIPPLING }
 
-/** How edge-detected cells are colored, separately from [ColorMode]. */
-enum class EdgeColorMode { OFF, CUSTOM, IMPOSTER, PALETTE }
+/**
+ * How edge-detected cells are colored, separately from [ColorMode] — the same
+ * four choices, by the same names, so "Mono" means one picked color in both
+ * places rather than being called something else on each.
+ *
+ * There's no "off": setting this to match [ColorMode] is what makes outlines
+ * blend into the rest, and an extra mode meaning "same as the other setting"
+ * only invites the two to disagree.
+ */
+enum class EdgeColorMode { SOURCE, PALETTE, IMPOSTER, MONO }
 
 /** Where pixels for this frame come from. */
 enum class MediaSource { CAMERA, IMAGE, NOISE }
 
-/** Procedural noise algorithms, ported from `generateNoiseValue()`. */
-enum class NoiseType { WHITE, PERLIN, SIMPLEX, SPARSE, ALLIGATOR, CELLULAR, PLASMA, TURBULENCE }
+/**
+ * Procedural noise algorithms. The first eight are ported from the web tool's
+ * `generateNoiseValue()`; the rest are the standard library of the field —
+ * fractal stacks, cell patterns and the classic texture recipes built on top
+ * of them. See [NoiseGenerators] for what each one actually does.
+ */
+enum class NoiseType(val displayName: String) {
+    // --- gradient noise, the smooth workhorses ---
+    PERLIN("Perlin"),
+    SIMPLEX("Simplex"),
+    VALUE("Value"),
+
+    // --- fractal stacks of the above ---
+    FBM("Fractal"),
+    TURBULENCE("Turbulence"),
+    RIDGED("Ridged"),
+    BILLOW("Billow"),
+    DOMAIN_WARP("Domain Warp"),
+
+    // --- cell / distance patterns ---
+    CELLULAR("Cellular"),
+    VORONOI("Voronoi"),
+    CRACKLE("Crackle"),
+    ALLIGATOR("Alligator"),
+
+    // --- texture recipes ---
+    MARBLE("Marble"),
+    WOOD("Wood"),
+    CURL("Curl"),
+    PLASMA("Plasma"),
+    SPARSE("Sparse"),
+
+    // --- unstructured static ---
+    WHITE("White"),
+    BLUE("Blue"),
+    PINK("Pink"),
+}
 
 /**
  * Available typefaces — **monospaced only, deliberately**.
@@ -107,7 +183,9 @@ data class AsciiSettings(
     val edgeDetectEnabled: Boolean = true,
     val edgeThreshold: Int = 35, // 0..100
     val edgeStrength: Int = 100, // 0..200
-    val edgeColorMode: EdgeColorMode = EdgeColorMode.OFF,
+    // Defaults to SOURCE to match [colorMode]'s default, so outlines start out
+    // looking like everything else — what the old "off" mode did.
+    val edgeColorMode: EdgeColorMode = EdgeColorMode.SOURCE,
     val edgeColorArgb: Int = 0xFFFFFFFF.toInt(),
     val edgePaletteStops: List<PaletteStop> = listOf(PaletteStop("#000000"), PaletteStop("#5B8CFF"), PaletteStop("#FFFFFF")),
 
@@ -115,6 +193,25 @@ data class AsciiSettings(
     val distortionType: DistortionType = DistortionType.NONE,
     val distortionAmount: Int = 40, // 0..100
     val distortionSpeed: Int = 100, // -300..300
+
+    // Per-type distortion controls. Each one is shown only for the types it
+    // actually means something to (see SettingsPanel's distortionSection), so
+    // a warp exposes its own shape rather than everything sharing one Amount.
+    /** How much of the frame a centred effect covers, as a percent of its
+     * shorter side. Applies to everything that works outward from a point:
+     * ripple, twirl, pinch, the three lens shapes, kaleidoscope, vortex, polar. */
+    val distortionRadiusPercent: Int = 100, // 10..200
+    /** Where that centre sits, as a percent across and down the frame. */
+    val distortionCenterXPercent: Int = 50, // 0..100
+    val distortionCenterYPercent: Int = 50, // 0..100
+    /** Mirrored wedges for kaleidoscope. */
+    val distortionSides: Int = 6, // 3..16
+    /** Wavelength for the wave-shaped warps: sine, ripple, zigzag, wobble.
+     * Higher means more, tighter waves across the frame. */
+    val distortionFrequencyPercent: Int = 100, // 10..400
+    /** Chunk size for the blocky warps — glitch bands, mosaic tiles, and the
+     * grain of the noise and smear displacements. */
+    val distortionBlockPercent: Int = 30, // 1..100
 
     // Color adjustment
     val brightness: Int = 0, // -100..100
@@ -146,7 +243,30 @@ data class AsciiSettings(
     val noiseType: NoiseType = NoiseType.PERLIN,
     val noiseScale: Float = 8f, // "feature size", range ~1..40
     val noiseSpeed: Float = 1f, // range 0..5
+    /** Heading the noise field travels along, in degrees: 0 = right, 90 = up,
+     * 180 = left, 270 = down. Applied uniformly to every noise type. */
+    val noiseAngleDegrees: Int = 0, // 0..359
     val noiseFrozen: Boolean = false,
+
+    // Per-type noise controls, shown only for the types they apply to.
+    /** Layers in the fractal stacks (Fractal, Turbulence, Ridged, Billow,
+     * Domain Warp, Pink). More layers means finer detail on top of the same
+     * broad shape — and more work per cell, which is why it's capped. */
+    val noiseOctaves: Int = 5, // 1..8
+    /** How much each successive fractal layer contributes, as a percent.
+     * Low values leave only the broad shape; high values make it grainy. */
+    val noiseRoughness: Int = 50, // 0..100 -> gain 0..1
+    /** How much finer each successive layer is than the last. 200 = each
+     * layer is twice the frequency, the usual choice. */
+    val noiseLacunarity: Int = 200, // 150..400 -> 1.5..4.0
+    /** How far Domain Warp drags its own coordinates before sampling. */
+    val noiseWarpPercent: Int = 100, // 0..300
+    /** How far cell centres wander from their grid slots, for the cell
+     * patterns (Cellular, Voronoi, Crackle, Alligator). At 0 they sit on a
+     * regular lattice; at 100 they're scattered. */
+    val noiseCellJitter: Int = 100, // 0..100
+    /** Ring and vein spacing for Marble and Wood. */
+    val noiseVeinPercent: Int = 100, // 10..400
 
     // ---- Digital Stippling (only used while renderMode == STIPPLING) ----
     // Dot grid density, analogous to `cols` above but its own control since
