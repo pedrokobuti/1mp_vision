@@ -1,6 +1,8 @@
 package com.llama.asciicam.pipeline
 
 import android.graphics.Bitmap
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Non-camera grid sources: a static gallery image (box-downsampled to
@@ -35,6 +37,7 @@ object GridSources {
         rows: Int,
         timeSeconds: Float,
         scale: Float,
+        angleDegrees: Int,
         outR: FloatArray,
         outG: FloatArray,
         outB: FloatArray,
@@ -43,10 +46,25 @@ object GridSources {
         // them to the noise functions, so the on-screen feature size "Scale" produces
         // doesn't change just because "Columns" did — see generateNoiseValue's doc.
         val physScale = NoiseGenerators.REFERENCE_COLS / cols.coerceAtLeast(1)
+
+        // Heading -> how far to slide the sampling window this frame. Screen y
+        // runs downward, so the y component is negated to make 90 degrees read
+        // as "up" the way a compass or a protractor would.
+        //
+        // The offset is the negative of the heading on purpose: shifting where
+        // we *sample* from moves the pattern the opposite way, so subtracting
+        // is what sends the field travelling toward the angle the user picked.
+        val rad = Math.toRadians(angleDegrees.toDouble())
+        val travel = timeSeconds * NoiseGenerators.DRIFT_RATE
+        val driftX = -cos(rad).toFloat() * travel
+        val driftY = sin(rad).toFloat() * travel
+
         for (y in 0 until rows) {
             for (x in 0 until cols) {
                 val idx = y * cols + x
-                val v = NoiseGenerators.generateNoiseValue(type, x, y, x * physScale, y * physScale, timeSeconds, scale).coerceIn(0f, 1f)
+                val v = NoiseGenerators.generateNoiseValue(
+                    type, x, y, x * physScale, y * physScale, timeSeconds, scale, driftX, driftY,
+                ).coerceIn(0f, 1f)
                 outR[idx] = v; outG[idx] = v; outB[idx] = v
             }
         }

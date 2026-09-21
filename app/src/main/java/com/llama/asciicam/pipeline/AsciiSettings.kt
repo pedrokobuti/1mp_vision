@@ -1,7 +1,40 @@
 package com.llama.asciicam.pipeline
 
-/** Distortion warp types, ported 1:1 from the web tool's `distortField()` switch. */
-enum class DistortionType { NONE, SINE, CIRCULAR, NOISE, TWIRL, PINCH, GLITCH }
+/**
+ * Ways of warping the sampling grid before anything is drawn from it.
+ *
+ * [displayName] rather than relying on the enum name: several of these are
+ * two words, and a menu reading "DOMAIN_WARP" or "Zig_zag" looks like a bug.
+ */
+enum class DistortionType(val displayName: String) {
+    NONE("None"),
+
+    // --- the original six, ported 1:1 from the web tool's distortField() ---
+    SINE("Sine"),
+    CIRCULAR("Ripple"),
+    NOISE("Noise"),
+    TWIRL("Twirl"),
+    PINCH("Pinch"),
+    GLITCH("Glitch"),
+
+    // --- lens shapes: the ways real optics bend a frame ---
+    BARREL("Barrel"),
+    PINCUSHION("Pincushion"),
+    FISHEYE("Fisheye"),
+
+    // --- geometric ---
+    SHEAR("Shear"),
+    ZIGZAG("Zigzag"),
+    MOSAIC("Mosaic"),
+    MIRROR("Mirror"),
+    KALEIDOSCOPE("Kaleidoscope"),
+
+    // --- rotational / flowing ---
+    VORTEX("Vortex"),
+    POLAR("Polar"),
+    SMEAR("Smear"),
+    WOBBLE("Wobble"),
+}
 
 /** Character-selection strategy: gradient ramp by luminance, or a literal word laid over the grid. */
 enum class CharSource { RAMP, WORD }
@@ -18,8 +51,43 @@ enum class EdgeColorMode { OFF, CUSTOM, IMPOSTER, PALETTE }
 /** Where pixels for this frame come from. */
 enum class MediaSource { CAMERA, IMAGE, NOISE }
 
-/** Procedural noise algorithms, ported from `generateNoiseValue()`. */
-enum class NoiseType { WHITE, PERLIN, SIMPLEX, SPARSE, ALLIGATOR, CELLULAR, PLASMA, TURBULENCE }
+/**
+ * Procedural noise algorithms. The first eight are ported from the web tool's
+ * `generateNoiseValue()`; the rest are the standard library of the field —
+ * fractal stacks, cell patterns and the classic texture recipes built on top
+ * of them. See [NoiseGenerators] for what each one actually does.
+ */
+enum class NoiseType(val displayName: String) {
+    // --- gradient noise, the smooth workhorses ---
+    PERLIN("Perlin"),
+    SIMPLEX("Simplex"),
+    VALUE("Value"),
+
+    // --- fractal stacks of the above ---
+    FBM("Fractal"),
+    TURBULENCE("Turbulence"),
+    RIDGED("Ridged"),
+    BILLOW("Billow"),
+    DOMAIN_WARP("Domain Warp"),
+
+    // --- cell / distance patterns ---
+    CELLULAR("Cellular"),
+    VORONOI("Voronoi"),
+    CRACKLE("Crackle"),
+    ALLIGATOR("Alligator"),
+
+    // --- texture recipes ---
+    MARBLE("Marble"),
+    WOOD("Wood"),
+    CURL("Curl"),
+    PLASMA("Plasma"),
+    SPARSE("Sparse"),
+
+    // --- unstructured static ---
+    WHITE("White"),
+    BLUE("Blue"),
+    PINK("Pink"),
+}
 
 /**
  * Available typefaces — **monospaced only, deliberately**.
@@ -146,6 +214,9 @@ data class AsciiSettings(
     val noiseType: NoiseType = NoiseType.PERLIN,
     val noiseScale: Float = 8f, // "feature size", range ~1..40
     val noiseSpeed: Float = 1f, // range 0..5
+    /** Heading the noise field travels along, in degrees: 0 = right, 90 = up,
+     * 180 = left, 270 = down. Applied uniformly to every noise type. */
+    val noiseAngleDegrees: Int = 0, // 0..359
     val noiseFrozen: Boolean = false,
 
     // ---- Digital Stippling (only used while renderMode == STIPPLING) ----

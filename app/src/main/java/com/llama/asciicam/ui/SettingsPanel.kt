@@ -363,11 +363,12 @@ private fun LazyListScope.sourceSection(
                             label = "Noise type",
                             options = NoiseType.entries,
                             selected = settings.noiseType,
-                            display = { it.name.titleCase() },
+                            display = { it.displayName },
                             onSelect = { v -> set { it.copy(noiseType = v) } },
                         )
                         HudSlider("Scale", settings.noiseScale, 1f, 40f, valueLabel = { "%.1f".format(Locale.US, it) }) { v -> set { it.copy(noiseScale = v) } }
                         HudSlider("Speed", settings.noiseSpeed, 0f, 5f, valueLabel = { "%.2f".format(Locale.US, it) }) { v -> set { it.copy(noiseSpeed = v) } }
+                        HudSlider("Direction", settings.noiseAngleDegrees.toFloat(), 0f, 359f, valueLabel = { "${hudInt(it)}\u00B0" }) { v -> set { it.copy(noiseAngleDegrees = v.toInt()) } }
                         HudToggle("Freeze", settings.noiseFrozen) { v -> set { it.copy(noiseFrozen = v) } }
                     }
                 }
@@ -393,7 +394,7 @@ private fun LazyListScope.distortionSection(
                     label = "Type",
                     options = DistortionType.entries,
                     selected = settings.distortionType,
-                    display = { it.name.titleCase() },
+                    display = { it.displayName },
                     onSelect = { v -> set { it.copy(distortionType = v) } },
                 )
                 if (settings.distortionType != DistortionType.NONE) {
@@ -567,12 +568,13 @@ private fun PaletteEditor(stops: List<PaletteStop>, onChange: (List<PaletteStop>
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Box(
-                    Modifier
-                        .size(20.dp)
-                        .background(Color(AsciiPipeline.parseHexColor(stop.hex)))
-                        .border(Hud.Stroke, Hud.Line),
-                )
+                HudColorSwatch(
+                    argb = AsciiPipeline.parseHexColor(stop.hex),
+                    size = 28.dp,
+                ) { picked ->
+                    val hex = String.format(Locale.US, "#%06X", picked and 0xFFFFFF)
+                    onChange(stops.toMutableList().also { it[index] = PaletteStop(hex) })
+                }
                 Spacer(Modifier.width(10.dp))
                 Box(Modifier.weight(1f)) {
                     HudTextField("Stop ${index + 1}", stop.hex) { v ->

@@ -1,5 +1,6 @@
 package com.llama.asciicam.pipeline
 
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.min
@@ -176,6 +177,114 @@ object NoiseGenerators {
         return min(1f, max(0f, sum + 0.5f))
     }
 
+    // ---- fractal stacks -------------------------------------------------
+    // All three walk the same octave loop — successively finer, successively
+    // quieter layers of Perlin — and differ only in what they do with each
+    // layer. That one choice is what separates rolling hills from cloud puffs
+    // from mountain ridges, which is why they're worth having as separate
+    // looks rather than one "fractal" setting.
+
+    /** Perlin recentred to -0.5..0.5, the signed form the fractals stack. */
+    private fun perlinSigned(x: Float, y: Float): Float = perlin2D(x, y) - 0.5f
+
+    /** Fractal Brownian motion: plain summed octaves. Soft, cloudy, the
+     * general-purpose one. */
+    fun fbm(x: Float, y: Float, octaves: Int = 5): Float {
+        var sum = 0f; var amp = 0.5f; var freq = 1f; var norm = 0f
+        for (i in 0 until octaves) {
+            sum += perlinSigned(x * freq, y * freq) * amp
+            norm += amp; amp *= 0.5f; freq *= 2f
+        }
+        return (sum / (norm * 2f) + 0.5f).coerceIn(0f, 1f)
+    }
+
+    /** Ridged multifractal: each octave inverted and squared, so the zero
+     * crossings become sharp creases. Reads as mountain ridges or lightning. */
+    fun ridged(x: Float, y: Float, octaves: Int = 5): Float {
+        var sum = 0f; var amp = 0.5f; var freq = 1f; var norm = 0f
+        for (i in 0 until octaves) {
+            val n = 1f - abs(perlinSigned(x * freq, y * freq) * 2f)
+            sum += n * n * amp
+            norm += amp; amp *= 0.5f; freq *= 2f
+        }
+        return (sum / norm).coerceIn(0f, 1f)
+    }
+
+    /** Billow: absolute value per octave, so troughs fold up into bulges.
+     * Puffy, cumulus-like. */
+    fun billow(x: Float, y: Float, octaves: Int = 5): Float {
+        var sum = 0f; var amp = 0.5f; var freq = 1f; var norm = 0f
+        for (i in 0 until octaves) {
+            sum += abs(perlinSigned(x * freq, y * freq) * 2f) * amp
+            norm += amp; amp *= 0.5f; freq *= 2f
+        }
+        return (sum / norm).coerceIn(0f, 1f)
+    }
+
+    /** Noise sampled through coordinates that are themselves displaced by
+     * noise — the field drags itself sideways, giving the eroded, river-like
+     * swirls a single pass can't produce. */
+    fun domainWarp(x: Float, y: Float): Float {
+        val wx = fbm(x, y, 3) - 0.5f
+        val wy = fbm(x + 5.2f, y + 1.3f, 3) - 0.5f
+        return fbm(x + wx * 4f, y + wy * 4f, 4)
+    }
+
+    /** Smoothed lattice of hashed values. Perlin's blockier ancestor — coarser
+     * and more obviously grid-born, which is the point of keeping it. */
+    fun valueNoise(x: Float, y: Float): Float {
+        val xi = floor(x).toInt(); val yi = floor(y).toInt()
+        val u = fade(x - xi); val v = fade(y - yi)
+        val a = noiseHash(xi, yi, 7); val b = noiseHash(xi + 1, yi, 7)
+        val c = noiseHash(xi, yi + 1, 7); val d = noiseHash(xi + 1, yi + 1, 7)
+        return lerp(lerp(a, b, u), lerp(c, d, u), v)
+    }
+
+    /** Veins: turbulence folded through a sine, the classic marble recipe. */
+    fun marble(x: Float, y: Float): Float {
+        val t = turbulence(x, y) - 0.5f
+        return (sin((x + t * 6f) * 1.5f) * 0.5f + 0.5f).coerceIn(0f, 1f)
+    }
+
+    /** Growth rings: distance from origin, wobbled by turbulence, wrapped. */
+    fun wood(x: Float, y: Float): Float {
+        val d = sqrt(x * x + y * y)
+        val rings = (d + (turbulence(x, y) - 0.5f) * 2f) * 2f
+        return rings - floor(rings)
+    }
+
+    /** Magnitude of the field's own gradient, which traces the flow lines a
+     * curl field would follow — wispy and smoke-like. */
+    fun curl(x: Float, y: Float): Float {
+        val e = 0.1f
+        val dx = perlin2D(x, y + e) - perlin2D(x, y - e)
+        val dy = perlin2D(x + e, y) - perlin2D(x - e, y)
+        return (sqrt(dx * dx + dy * dy) / (2f * e) * 0.5f).coerceIn(0f, 1f)
+    }
+
+    /** Static with its local average subtracted — a high-pass that suppresses
+     * the clumps plain white noise leaves, which is what "blue" noise means:
+     * energy pushed into the fine detail. */
+    fun blueNoise(ix: Int, iy: Int, seed: Int): Float {
+        val c = noiseHash(ix, iy, seed)
+        var avg = 0f
+        for (dy in -1..1) for (dx in -1..1) {
+            if (dx != 0 || dy != 0) avg += noiseHash(ix + dx, iy + dy, seed)
+        }
+        return ((c - avg / 8f) * 1.5f + 0.5f).coerceIn(0f, 1f)
+    }
+
+    /** Octaves with 1/f falloff — heavier at the coarse end, the opposite
+     * balance to [blueNoise]. */
+    fun pinkNoise(x: Float, y: Float): Float {
+        var sum = 0f; var amp = 1f; var freq = 1f; var norm = 0f
+        for (i in 0 until 5) {
+            sum += valueNoise(x * freq, y * freq) * amp
+            norm += amp; amp *= 0.5f; freq *= 2f
+        }
+        return (sum / norm).coerceIn(0f, 1f)
+    }
+
     /**
      * [cellX]/[cellY] are raw grid-cell coordinates (only WHITE uses these directly,
      * one hashed value per cell by design — it's meant to look like per-pixel static
@@ -185,30 +294,71 @@ object NoiseGenerators {
      * constant on screen as `cols` changes — otherwise the same `scale` value packs
      * more or fewer noise cells into the same physical width depending on `cols`,
      * and "changing Columns" would look like it's also changing the noise Scale.
-     * [t] is the (speed-scaled) noise clock.
+     * [t] is the (speed-scaled) noise clock. [driftX]/[driftY] slide the whole
+     * field along the user's chosen heading (see [GridSources.sampleNoise]);
+     * every type takes the same offset, which is what makes one direction
+     * control work across all of them. Each type used to bake its own drift
+     * direction into these coordinates, which is why the field only ever
+     * travelled one way no matter the setting.
      */
-    fun generateNoiseValue(type: NoiseType, cellX: Int, cellY: Int, physX: Float, physY: Float, t: Float, scale: Float): Float {
-        val nx = physX / scale
-        val ny = physY / scale
+    fun generateNoiseValue(
+        type: NoiseType,
+        cellX: Int,
+        cellY: Int,
+        physX: Float,
+        physY: Float,
+        t: Float,
+        scale: Float,
+        driftX: Float,
+        driftY: Float,
+    ): Float {
+        val nx = physX / scale + driftX
+        val ny = physY / scale + driftY
         return when (type) {
-            NoiseType.WHITE -> noiseHash(cellX, cellY, floor(t * 8).toInt())
-            NoiseType.PERLIN -> perlin2D(nx + t * 0.3f, ny + t * 0.2f)
-            NoiseType.SIMPLEX -> simplex2D(nx + t * 0.25f, ny - t * 0.18f)
-            NoiseType.SPARSE -> sparseConvolution(nx + t * 0.3f, ny + t * 0.2f)
+            // Static is per-cell by design, so it scrolls in whole cells
+            // rather than sub-cell amounts, and reseeds over time on top.
+            NoiseType.WHITE -> noiseHash(
+                cellX + floor(driftX).toInt(),
+                cellY + floor(driftY).toInt(),
+                floor(t * 8).toInt(),
+            )
+            NoiseType.BLUE -> blueNoise(
+                cellX + floor(driftX).toInt(),
+                cellY + floor(driftY).toInt(),
+                floor(t * 8).toInt(),
+            )
+            NoiseType.PERLIN -> perlin2D(nx, ny)
+            NoiseType.SIMPLEX -> simplex2D(nx, ny)
+            NoiseType.VALUE -> valueNoise(nx, ny)
+            NoiseType.PINK -> pinkNoise(nx, ny)
+            NoiseType.SPARSE -> sparseConvolution(nx, ny)
             NoiseType.ALLIGATOR -> {
-                val w = worley(nx + t * 0.15f, ny + t * 0.1f)
+                val w = worley(nx, ny)
                 val edge = min(1f, (w.f2 - w.f1) * 3f)
                 val mottle = w.cellId * 0.6f + 0.2f
                 edge * 0.7f + mottle * 0.3f
             }
-            NoiseType.CELLULAR -> {
-                val w = worley(nx + t * 0.15f, ny + t * 0.1f)
-                min(1f, w.f1)
+            NoiseType.CELLULAR -> min(1f, worley(nx, ny).f1)
+            NoiseType.VORONOI -> worley(nx, ny).cellId
+            NoiseType.CRACKLE -> {
+                val w = worley(nx, ny)
+                // Only the seam between cells survives; everything else is flat.
+                (1f - min(1f, (w.f2 - w.f1) * 6f)).coerceIn(0f, 1f)
             }
             NoiseType.PLASMA -> plasma(nx, ny, t)
-            NoiseType.TURBULENCE -> turbulence(nx + t * 0.2f, ny + t * 0.15f)
+            NoiseType.TURBULENCE -> turbulence(nx, ny)
+            NoiseType.FBM -> fbm(nx, ny)
+            NoiseType.RIDGED -> ridged(nx, ny)
+            NoiseType.BILLOW -> billow(nx, ny)
+            NoiseType.DOMAIN_WARP -> domainWarp(nx, ny)
+            NoiseType.MARBLE -> marble(nx, ny)
+            NoiseType.WOOD -> wood(nx, ny)
+            NoiseType.CURL -> curl(nx, ny)
         }
     }
+
+    /** How fast the field slides along its heading, per unit of noise clock. */
+    const val DRIFT_RATE = 0.25f
 
     const val NOISE_ASPECT_W = 4
     const val NOISE_ASPECT_H = 3

@@ -1,5 +1,6 @@
 package com.llama.asciicam.pipeline
 
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
@@ -775,6 +776,114 @@ internal fun computeAdjustedFrame(
                             dx = (hashNoiseF(band, 0, glitchTick, 55f) - 0.5f) * 2f * amt * cols * 0.15f
                         }
                     }
+
+                    // ---- lens shapes ----
+                    // All three move every point along the line to the centre,
+                    // by an amount that depends on how far out it already is.
+                    // The exponent is the whole difference between them:
+                    // above 1 pushes outward (barrel), below 1 pulls inward
+                    // (pincushion), and a steeper curve reads as a fisheye.
+                    DistortionType.BARREL, DistortionType.PINCUSHION, DistortionType.FISHEYE -> {
+                        val ddx = x - cx; val ddy = y - cy
+                        val maxDist = minDim * 0.5f
+                        val dist = hypot(ddx, ddy)
+                        val norm = (dist / maxDist).coerceIn(0f, 1f)
+                        val breathe = 1f + 0.25f * sin(time * 1.2f)
+                        val power = when (settings.distortionType) {
+                            DistortionType.BARREL -> 1f + amt * 0.9f * breathe
+                            DistortionType.PINCUSHION -> 1f - amt * 0.45f * breathe
+                            else -> 1f + amt * 2.2f * breathe
+                        }
+                        val scaled = max(norm, 0.0001f).pow(power) * maxDist
+                        val angle = atan2(ddy, ddx)
+                        dx = cos(angle) * scaled - ddx
+                        dy = sin(angle) * scaled - ddy
+                    }
+
+                    // ---- geometric ----
+                    DistortionType.SHEAR -> {
+                        // Rows slide sideways in proportion to their height,
+                        // so the frame leans like italic text.
+                        dx = amt * cols * 0.5f * ((y - cy) / max(1f, rows.toFloat())) *
+                            (1f + 0.4f * sin(time * 0.9f))
+                    }
+                    DistortionType.ZIGZAG -> {
+                        // A triangle wave instead of a sine: the hard reversals
+                        // are what make it read as a zigzag rather than a ripple.
+                        val period = max(2f, minDim * 0.18f)
+                        val phase = (y / period + time * 0.5f)
+                        val tri = abs(2f * (phase - floor(phase + 0.5f))) * 2f - 1f
+                        dx = amt * cols * 0.12f * tri
+                    }
+                    DistortionType.MOSAIC -> {
+                        // Snap every coordinate to a coarse block, so a whole
+                        // block samples one source point and goes flat. Blocks
+                        // below a cell wide are skipped rather than applied:
+                        // rounding to a 1-cell grid isn't a no-op, it's a
+                        // half-cell shift of the entire frame.
+                        val block = amt * minDim * 0.12f
+                        if (block >= 1.5f) {
+                            dx = (floor(x / block) + 0.5f) * block - x
+                            dy = (floor(y / block) + 0.5f) * block - y
+                        }
+                    }
+                    DistortionType.MIRROR -> {
+                        // Right half samples the left half, reversed. Scaled by
+                        // amount so the slider still does something here —
+                        // partway through, the halves slide across each other.
+                        if (x > cx) dx = ((2f * cx - x) - x) * amt
+                    }
+                    DistortionType.KALEIDOSCOPE -> {
+                        // Fold the angle into one wedge and reflect it back and
+                        // forth, the way facing mirrors repeat a scene.
+                        val ddx = x - cx; val ddy = y - cy
+                        val dist = hypot(ddx, ddy)
+                        val wedges = 3f + floor(amt * 6f)
+                        val seg = (Math.PI.toFloat() * 2f) / wedges
+                        var a = atan2(ddy, ddx) + time * 0.3f
+                        a = a - floor(a / seg) * seg
+                        if (a > seg / 2f) a = seg - a
+                        dx = cx + dist * cos(a) - x
+                        dy = cy + dist * sin(a) - y
+                    }
+
+                    // ---- rotational / flowing ----
+                    DistortionType.VORTEX -> {
+                        // Twirl rotates less the further out you go; this
+                        // rotates everything by the same angle, so the whole
+                        // frame spins rather than winding up at the centre.
+                        val ddx = x - cx; val ddy = y - cy
+                        val dist = hypot(ddx, ddy)
+                        val a = atan2(ddy, ddx) + amt * 2f * sin(time * 0.7f)
+                        dx = cx + dist * cos(a) - x
+                        dy = cy + dist * sin(a) - y
+                    }
+                    DistortionType.POLAR -> {
+                        // Read the frame as (angle, radius) instead of (x, y) —
+                        // verticals become rings and the centre becomes a tunnel.
+                        val ddx = x - cx; val ddy = y - cy
+                        val dist = hypot(ddx, ddy)
+                        val a = atan2(ddy, ddx)
+                        val srcX = (a / (Math.PI.toFloat() * 2f) + 0.5f) * (cols - 1)
+                        val srcY = (dist / (minDim * 0.5f)).coerceIn(0f, 1f) * (rows - 1)
+                        dx = (srcX - x) * amt
+                        dy = (srcY - y) * amt
+                    }
+                    DistortionType.SMEAR -> {
+                        // Each column drags from further up the frame, by an
+                        // amount that wanders slowly across the width.
+                        val lag = hashNoiseF(x, 0, time * 0.4f, 13f)
+                        dy = -lag * amt * rows * 0.35f
+                    }
+                    DistortionType.WOBBLE -> {
+                        // Two sines at right angles and different rates, which
+                        // never line up — the frame drifts like heat haze.
+                        dx = amt * cols * 0.05f * sin(y * 0.2f + time * 1.3f) +
+                            amt * cols * 0.03f * sin(x * 0.11f - time * 0.7f)
+                        dy = amt * rows * 0.05f * sin(x * 0.17f + time * 1.1f) +
+                            amt * rows * 0.03f * sin(y * 0.13f - time * 0.9f)
+                    }
+
                     DistortionType.NONE -> {}
                 }
                 val sx = (x + dx).coerceIn(0f, (cols - 1).toFloat())

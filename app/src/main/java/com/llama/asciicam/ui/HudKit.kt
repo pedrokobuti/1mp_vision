@@ -1,5 +1,6 @@
 package com.llama.asciicam.ui
 
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -39,12 +40,15 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.Font
@@ -52,8 +56,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.llama.asciicam.R
@@ -288,7 +294,10 @@ private fun HudValueReadout(
     onChange: (Float) -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
-    var draft by remember { mutableStateOf("") }
+    // A TextFieldValue rather than a String: a String carries no caret, so the
+    // field opens with it at position zero and every edit starts by walking it
+    // to the end. This lets the caret start where typing actually begins.
+    var draft by remember { mutableStateOf(TextFieldValue("")) }
     val focusRequester = remember { FocusRequester() }
     // onFocusChanged fires once with isFocused=false as the field attaches,
     // before focus is requested; without this latch that first callback would
@@ -298,7 +307,7 @@ private fun HudValueReadout(
     fun commit() {
         if (!editing) return
         editing = false
-        val parsed = draft.trim().replace(',', '.').toFloatOrNull()
+        val parsed = draft.text.trim().replace(',', '.').toFloatOrNull()
         if (parsed != null && parsed.isFinite()) onChange(parsed.coerceIn(min, max))
     }
 
@@ -338,7 +347,10 @@ private fun HudValueReadout(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() },
                 ) {
-                    draft = String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+                    val text = String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
+                    // Caret parked after the last digit, so backspace deletes
+                    // the value straight away instead of doing nothing.
+                    draft = TextFieldValue(text, selection = TextRange(text.length))
                     hasTakenFocus = false
                     editing = true
                 },
@@ -576,6 +588,185 @@ fun HudTextField(
                 cursorBrush = SolidColor(Hud.Accent),
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+    }
+}
+
+/**
+ * A swatch showing [argb] that opens a full picker when tapped — the entry
+ * point to [HudColorPickerDialog] wherever a color is editable.
+ */
+@Composable
+fun HudColorSwatch(
+    argb: Int,
+    modifier: Modifier = Modifier,
+    size: Dp = 28.dp,
+    onChange: (Int) -> Unit,
+) {
+    var picking by remember { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .size(size)
+            .background(Color(argb))
+            .border(Hud.Stroke, Hud.Line)
+            .clickable { picking = true },
+    )
+    if (picking) {
+        HudColorPickerDialog(
+            initial = argb,
+            onDismiss = { picking = false },
+            onConfirm = { picked -> onChange(picked); picking = false },
+        )
+    }
+}
+
+/**
+ * The picker itself: a saturation/brightness field with a hue strip beneath
+ * it, the arrangement every image editor uses, plus a hex box for typing an
+ * exact value.
+ *
+ * Hue is separated from the square deliberately — the three dimensions of a
+ * color don't fit on a flat surface, and splitting off the one that's
+ * circular (hue) leaves the two that aren't (saturation, brightness) as a
+ * plain XY area you can sweep with a thumb.
+ */
+@Composable
+fun HudColorPickerDialog(
+    initial: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (Int) -> Unit,
+) {
+    val hsv = remember(initial) { FloatArray(3).also { AndroidColor.colorToHSV(initial, it) } }
+    var hue by remember(initial) { mutableStateOf(hsv[0]) }
+    var sat by remember(initial) { mutableStateOf(hsv[1]) }
+    var value by remember(initial) { mutableStateOf(hsv[2]) }
+
+    val current = AndroidColor.HSVToColor(floatArrayOf(hue, sat, value))
+    var hexDraft by remember(initial) { mutableStateOf(String.format(Locale.US, "#%06X", initial and 0xFFFFFF)) }
+    // Typing in the hex box drives the square; dragging the square rewrites
+    // the box. Without this the two halves of the dialog would disagree.
+    fun syncHexFromHsv(color: Int) {
+        hexDraft = String.format(Locale.US, "#%06X", color and 0xFFFFFF)
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .background(Hud.PanelBg)
+                .border(Hud.Stroke, Hud.Line)
+                .padding(16.dp),
+        ) {
+            Column {
+                Text("COLOR", style = Hud.LabelLarge, color = Hud.TextPrimary)
+                Spacer(Modifier.height(12.dp))
+
+                // Saturation across, brightness down — the standard layout.
+                Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                        .border(Hud.Stroke, Hud.Line)
+                        .pointerInput(Unit) {
+                            fun report(x: Float, y: Float) {
+                                sat = (x / size.width.toFloat()).coerceIn(0f, 1f)
+                                value = 1f - (y / size.height.toFloat()).coerceIn(0f, 1f)
+                                syncHexFromHsv(AndroidColor.HSVToColor(floatArrayOf(hue, sat, value)))
+                            }
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                report(down.position.x, down.position.y)
+                                down.consume()
+                                drag(down.id) { change ->
+                                    report(change.position.x, change.position.y)
+                                    change.consume()
+                                }
+                            }
+                        },
+                ) {
+                    val pure = Color(AndroidColor.HSVToColor(floatArrayOf(hue, 1f, 1f)))
+                    // White -> full hue left to right, then black over the top:
+                    // two gradients multiply out to the usual SV square.
+                    drawRect(Brush.horizontalGradient(listOf(Color.White, pure)))
+                    drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+
+                    val px = sat * this.size.width
+                    val py = (1f - value) * this.size.height
+                    // Ringed in both black and white so the marker stays
+                    // visible over any color underneath it.
+                    drawCircle(Color.Black, radius = 7f, center = Offset(px, py), style = Stroke(width = 3f))
+                    drawCircle(Color.White, radius = 7f, center = Offset(px, py), style = Stroke(width = 1.5f))
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Canvas(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(28.dp)
+                        .border(Hud.Stroke, Hud.Line)
+                        .pointerInput(Unit) {
+                            fun report(x: Float) {
+                                hue = (x / size.width.toFloat()).coerceIn(0f, 1f) * 360f
+                                syncHexFromHsv(AndroidColor.HSVToColor(floatArrayOf(hue, sat, value)))
+                            }
+                            awaitEachGesture {
+                                val down = awaitFirstDown()
+                                report(down.position.x)
+                                down.consume()
+                                drag(down.id) { change -> report(change.position.x); change.consume() }
+                            }
+                        },
+                ) {
+                    drawRect(
+                        Brush.horizontalGradient(
+                            (0..6).map { Color(AndroidColor.HSVToColor(floatArrayOf(it * 60f, 1f, 1f))) },
+                        ),
+                    )
+                    val hx = (hue / 360f) * this.size.width
+                    drawRect(
+                        Color.White,
+                        topLeft = Offset(hx - 1.5f, 0f),
+                        size = Size(3f, this.size.height),
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(Hud.ControlHeight)
+                            .background(Color(current))
+                            .border(Hud.Stroke, Hud.Line),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Box(Modifier.weight(1f)) {
+                        HudTextField("Hex", hexDraft) { typed ->
+                            hexDraft = typed
+                            val parsed = runCatching {
+                                AndroidColor.parseColor(if (typed.startsWith("#")) typed else "#$typed")
+                            }.getOrNull()
+                            if (parsed != null) {
+                                val out = FloatArray(3)
+                                AndroidColor.colorToHSV(parsed, out)
+                                hue = out[0]; sat = out[1]; value = out[2]
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f)) {
+                        HudButton("Cancel", style = HudButtonCompact, onClick = onDismiss)
+                    }
+                    Box(Modifier.weight(1f)) {
+                        HudButton("OK", emphasized = true, style = HudButtonCompact) { onConfirm(current) }
+                    }
+                }
+            }
         }
     }
 }

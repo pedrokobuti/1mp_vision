@@ -400,7 +400,7 @@ class AsciiViewModel(app: Application) : AndroidViewModel(app) {
                 val (gCols, gRows) = gridDimsFor(srcW, srcH)
                 val n = gCols * gRows
                 val rr = FloatArray(n); val gg = FloatArray(n); val bb = FloatArray(n)
-                GridSources.sampleNoise(s.noiseType, gCols, gRows, noiseClock, s.noiseScale, rr, gg, bb)
+                GridSources.sampleNoise(s.noiseType, gCols, gRows, noiseClock, s.noiseScale, s.noiseAngleDegrees, rr, gg, bb)
 
                 processMutex.withLock {
                     processAndPublish(rr, gg, bb, gCols, gRows, srcW, srcH, temporal = true)
